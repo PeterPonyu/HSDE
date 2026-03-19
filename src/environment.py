@@ -364,14 +364,15 @@ class Env(HSDEModel, envMixin, scMixin):
         return avg
 
     def validate(self):
-        """Evaluate on validation set."""
+        """Evaluate on validation set with clustering metrics."""
         self.nn.eval()
         all_latents = []
 
         with torch.no_grad():
             if self.encoder_type == "graph":
-                latent = self.take_latent(self.X_val_norm, self.edge_index, self.edge_weight)
-                all_latents.append(latent)
+                # Graph encoder needs full graph; extract val indices afterwards
+                full_latent = self.take_latent(self.X_norm, self.edge_index, self.edge_weight)
+                all_latents.append(full_latent[self.val_idx])
             else:
                 for batch_norm, _ in self.val_loader:
                     latent = self.take_latent(batch_norm.numpy())
@@ -385,6 +386,28 @@ class Env(HSDEModel, envMixin, scMixin):
         avg_val_loss = -val_score[2]  # Negative silhouette as proxy
         self.val_losses.append(avg_val_loss)
         return avg_val_loss, val_score
+
+    def validate_loss(self):
+        """Fast validation: use recent training loss trend as early stopping signal.
+
+        Avoids the expensive clustering metric computation while still
+        providing a reasonable signal for early stopping. Uses an exponential
+        moving average of the training loss.
+        """
+        if len(self.train_losses) < 2:
+            val_loss = self.train_losses[-1] if self.train_losses else 0.0
+        else:
+            # Smoothed training loss (EMA over last 5 epochs)
+            window = min(5, len(self.train_losses))
+            recent = self.train_losses[-window:]
+            alpha = 0.4
+            ema = recent[0]
+            for v in recent[1:]:
+                ema = alpha * v + (1 - alpha) * ema
+            val_loss = ema
+
+        self.val_losses.append(val_loss)
+        return val_loss
 
     def check_early_stopping(self, val_loss, patience=25):
         if val_loss < self.best_val_loss:

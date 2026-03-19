@@ -1,35 +1,26 @@
-# HSDE-Graph: Hyperbolic SDE-Regularized VAE with Graph Attention
+# HSDE: Lorentz Information-bottleneck Omics Representation Architecture
 """
-HSDE-Graph: Unified Single-Cell Omics Analysis Framework
-=========================================================
+HSDE: Unified Single-Cell Omics Analysis Framework
+=====================================================
 
-Integrates two complementary architectures:
-- **HSDE**: Hyperbolic SDE-Regularized VAE with Lorentz geometry, neural SDE
-  trajectory inference, PDE graph diffusion, and count-based likelihoods.
-- **CCVGAE**: Graph Attention Network encoders/decoders, graph structure learning,
-  subgraph sampling, and centroid inference.
+Project Structure:
+- src/       : Core framework source code
+- experiments/ : Ablation studies and component analysis scripts
+- data/      : Datasets
+- results/   : Experiment outputs
 
-Encoder options: 'mlp', 'transformer', 'graph' (GAT, GCN, ChebConv, SAGE, etc.)
-Decoder options: 'mlp' (with NB/ZINB/Poisson/ZIP likelihoods), 'graph'
-Regularization: β-VAE, DIP-VAE, β-TC-VAE, InfoVAE, Lorentz/Euclidean manifold
-Dynamics: Neural SDE trajectory inference, Graph PDE diffusion
+Integrates complementary architectural components:
+- **Lorentz Geometry**: Hyperbolic manifold regularization for hierarchical structure
+- **Information Bottleneck**: Dual-path coupling for coordinated biological programs
+- **Neural SDE**: Stochastic differential equation trajectory inference
+- **Graph PDE**: Latent-space graph diffusion regularization
+- **Count-based VAE**: NB/ZINB/Poisson/ZIP likelihood functions
+- **Multi-encoder**: MLP, Transformer, and Graph (GAT/GCN/etc.) backbones
+- **Disentanglement**: β-VAE, DIP-VAE, TC-VAE, InfoVAE regularizers
 """
 
-from .agent import HSDE
+from .src.agent import HSDE
 
-__all__ = [
-    "HSDE",
-    "agent",
-    "environment",
-    "model",
-    "module",
-    "graph_modules",
-    "graph_utils",
-    "mixin",
-    "sde_functions",
-    "pde_functions",
-    "utils",
-    "vectorfield",
-]
+__all__ = ["HSDE"]
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

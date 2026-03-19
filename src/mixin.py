@@ -154,14 +154,20 @@ class envMixin:
     """Clustering metrics for latent space evaluation."""
 
     def _calc_score_with_labels(self, latent, labels):
+        """Compute clustering metrics using ground truth labels.
+
+        ARI and NMI compare KMeans-predicted clusters against ground truth.
+        ASW, CH, and DB are computed on ground truth labels to measure how
+        well the latent space preserves known biological cell types.
+        """
         n_clusters = len(np.unique(labels))
         pred = KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit_predict(latent)
         return (
             adjusted_rand_score(labels, pred),
             normalized_mutual_info_score(labels, pred),
-            silhouette_score(latent, pred),
-            calinski_harabasz_score(latent, pred),
-            davies_bouldin_score(latent, pred),
+            silhouette_score(latent, labels),
+            calinski_harabasz_score(latent, labels),
+            davies_bouldin_score(latent, labels),
             self._calc_corr(latent),
         )
 
@@ -182,12 +188,13 @@ class envMixin:
         corr = np.abs(np.corrcoef(latent.T))
         return corr.sum(axis=1).mean() - 1
 
-    def _metrics(self, latent, labels):
-        ARI = adjusted_rand_score(self.labels, labels)
-        NMI = normalized_mutual_info_score(self.labels, labels)
-        ASW = silhouette_score(latent, labels)
-        CH = calinski_harabasz_score(latent, labels)
-        DB = davies_bouldin_score(latent, labels)
+    def _metrics(self, latent, pred_labels):
+        """Compute metrics: ARI/NMI vs ground truth, ASW/CH/DB on ground truth."""
+        ARI = adjusted_rand_score(self.labels, pred_labels)
+        NMI = normalized_mutual_info_score(self.labels, pred_labels)
+        ASW = silhouette_score(latent, self.labels)
+        CH = calinski_harabasz_score(latent, self.labels)
+        DB = davies_bouldin_score(latent, self.labels)
         PC = self._calc_corr(latent)
         return ARI, NMI, ASW, CH, DB, PC
 

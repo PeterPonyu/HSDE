@@ -170,6 +170,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
     # ========================================================================
 
     @torch.no_grad()
+    @torch.no_grad()
     def take_latent(self, state, edge_index=None, edge_weight=None):
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
         ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
