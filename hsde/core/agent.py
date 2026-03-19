@@ -23,10 +23,13 @@ from .vectorfield import VectorFieldMixin
 from .environment import Env
 from anndata import AnnData
 from typing import Optional
+import logging
 import torch
 import tqdm
 import time
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class HSDE(Env, VectorFieldMixin):
@@ -455,8 +458,8 @@ class HSDE(Env, VectorFieldMixin):
 
                         if should_stop:
                             self.actual_epochs = epoch + 1
-                            print(f"\n\nEarly stopping at epoch {epoch + 1}")
-                            print(f"Best validation loss: {self.best_val_loss:.4f}")
+                            logger.info("Early stopping at epoch %d", epoch + 1)
+                            logger.info("Best validation loss: %.4f", self.best_val_loss)
                             self.load_best_model()
                             break
                     else:
@@ -608,22 +611,22 @@ class HSDE(Env, VectorFieldMixin):
 
     def summary(self):
         """Print a summary of the model configuration."""
-        print("=" * 60)
-        print("HSDE Model Summary")
-        print("=" * 60)
-        print(f"  Encoder type:     {self.encoder_type}")
+        logger.info("=" * 60)
+        logger.info("HSDE Model Summary")
+        logger.info("=" * 60)
+        logger.info("  Encoder type:     %s", self.encoder_type)
         n_params = sum(p.numel() for p in self.nn.parameters())
-        print(f"  Parameters:       {n_params:,}")
-        print(f"  Latent dim:       {self.nn.latent_dim}")
-        print(f"  Bottleneck dim:   {self.nn.i_dim}")
-        print(f"  Input dim:        {self.n_var}")
-        print(f"  Cells:            {self.n_obs}")
-        print(f"  Loss type:        {self.loss_type}")
-        print(f"  Device:           {self.device}")
-        print(f"  Use SDE:          {self.nn.use_sde}")
-        print(f"  Use PDE:          {self.nn.use_pde}")
+        logger.info("  Parameters:       %s", f"{n_params:,}")
+        logger.info("  Latent dim:       %s", self.nn.latent_dim)
+        logger.info("  Bottleneck dim:   %s", self.nn.i_dim)
+        logger.info("  Input dim:        %s", self.n_var)
+        logger.info("  Cells:            %s", self.n_obs)
+        logger.info("  Loss type:        %s", self.loss_type)
+        logger.info("  Device:           %s", self.device)
+        logger.info("  Use SDE:          %s", self.nn.use_sde)
+        logger.info("  Use PDE:          %s", self.nn.use_pde)
         if self.encoder_type == "graph":
-            print(f"  Graph type:       {self.nn.encoder.conv_type}")
-            print(f"  Graph decoder:    {self.nn.use_graph_decoder}")
-            print(f"  Edges:            {len(self.edge_weight) if self.edge_weight is not None else 0}")
-        print("=" * 60)
+            logger.info("  Graph type:       %s", self.nn.encoder.conv_type)
+            logger.info("  Graph decoder:    %s", self.nn.use_graph_decoder)
+            logger.info("  Edges:            %s", len(self.edge_weight) if self.edge_weight is not None else 0)
+        logger.info("=" * 60)

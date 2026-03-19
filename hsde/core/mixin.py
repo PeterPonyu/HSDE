@@ -13,6 +13,8 @@ Merged mixins from both HSDE and CCVGAE:
 - scMixin: Scanpy-based preprocessing (from CCVGAE)
 """
 
+import logging
+
 import torch
 import torch.nn as nn
 import torchsde
@@ -28,6 +30,8 @@ from sklearn.metrics import (
 from scipy.sparse import issparse
 from typing import Optional
 from anndata import AnnData
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -247,19 +251,19 @@ class scMixin:
         try:
             if layer not in adata.layers.keys():
                 adata.layers[layer] = adata.X.copy()
-                print(f"Creating layer: {layer}.")
+                logger.info(f"Creating layer: {layer}.")
             if "log1p" not in adata.uns.keys():
                 sc.pp.normalize_total(adata, target_sum=1e4)
                 sc.pp.log1p(adata)
-                print("Performing normalization.")
+                logger.info("Performing normalization.")
             if "highly_variable" not in adata.var.keys():
                 if n_var:
                     sc.pp.highly_variable_genes(adata, n_top_genes=n_var)
                 else:
                     sc.pp.highly_variable_genes(adata)
-                print("Selecting highly variable genes.")
+                logger.info("Selecting highly variable genes.")
         except (ValueError, KeyError, AttributeError) as e:
-            print(f"Error during preprocessing: {e}")
+            logger.error(f"Error during preprocessing: {e}")
 
     def _decomposition(self, adata: AnnData, tech: str, latent_dim: int) -> None:
         from sklearn.decomposition import PCA, NMF, FastICA, TruncatedSVD, FactorAnalysis
@@ -280,9 +284,9 @@ class scMixin:
                 X_hvg = X_hvg.toarray()
             latent = decomp_map[tech](n_components=latent_dim).fit_transform(X_hvg)
             adata.obsm[f"X_{tech}"] = latent
-            print(f"Stored latent in adata.obsm['X_{tech}'].")
+            logger.info(f"Stored latent in adata.obsm['X_{tech}'].")
         except (ValueError, KeyError, TypeError) as e:
-            print(f"Error during decomposition: {e}")
+            logger.error(f"Error during decomposition: {e}")
 
     def _batchcorrect(self, adata: AnnData, batch_tech: str, tech: str, layer: str) -> None:
         try:
@@ -305,4 +309,4 @@ class scMixin:
                 model.train()
                 adata.obsm["X_scvi"] = model.get_latent_representation()
         except (ValueError, ImportError, RuntimeError) as e:
-            print(f"Error during batch correction: {e}")
+            logger.error(f"Error during batch correction: {e}")
