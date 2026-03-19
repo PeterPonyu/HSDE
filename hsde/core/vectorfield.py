@@ -14,7 +14,6 @@ from sklearn.neighbors import NearestNeighbors
 from scipy.stats import norm
 from typing import Optional, Tuple, Union
 import matplotlib.pyplot as plt
-import warnings
 
 
 def quiver_autoscale(E: np.ndarray, V: np.ndarray) -> float:

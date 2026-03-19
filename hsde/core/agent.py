@@ -1,6 +1,6 @@
 """
-HSDE: Hyperbolic SDE-Regularized VAE with Graph Integration
-=============================================================
+HSDE: Hyperbolic SDE-Regularized VAE
+=======================================================================
 
 A unified deep learning framework for single-cell omics analysis combining:
 - Variational Autoencoder (VAE) for dimensionality reduction
@@ -9,7 +9,7 @@ A unified deep learning framework for single-cell omics analysis combining:
 - Neural SDE regularization for trajectory inference
 - Transformer-based attention mechanisms for long-range dependencies
 - Multiple count-based likelihood functions (NB, ZINB, Poisson, ZIP)
-- Graph neural network encoders (GAT, GCN, ChebConv, SAGE, etc.) via CCVGAE
+- Graph neural network encoders (GAT, GCN, ChebConv, SAGE, etc.)
 - Graph structure decoders for adjacency learning
 - Subgraph-aware training for scalability
 
@@ -31,7 +31,7 @@ import numpy as np
 
 class HSDE(Env, VectorFieldMixin):
     """
-    HSDE: Hyperbolic SDE-Regularized VAE with Graph Integration
+    HSDE: Hyperbolic SDE-Regularized VAE
 
     A unified framework for single-cell omics analysis (scRNA-seq and scATAC-seq)
     that learns low-dimensional representations while preserving both local
@@ -116,7 +116,7 @@ class HSDE(Env, VectorFieldMixin):
     -----------------
     encoder_type : str, default='mlp'
         Encoder backbone:
-        - 'mlp': Standard MLP with LayerNorm (HSDE default)
+        - 'mlp': Standard MLP with LayerNorm (default)
         - 'transformer': Multi-head attention encoder
         - 'graph': Graph neural network encoder (requires torch_geometric)
 
@@ -184,7 +184,7 @@ class HSDE(Env, VectorFieldMixin):
     Examples
     --------
     >>> import scanpy as sc
-    >>> from liora import HSDE
+    >>> from hsde import HSDE
     >>>
     >>> # Load data
     >>> adata = sc.read_h5ad('data.h5ad')
@@ -303,7 +303,7 @@ class HSDE(Env, VectorFieldMixin):
                 f"Information bottleneck dimension ({i_dim}) must be < latent dimension ({latent_dim})"
             )
 
-        # Initialize parent environment (which initializes HSDEModel etc.)
+        # Initialize parent environment
         super().__init__(
             adata=adata,
             layer=layer,
@@ -389,6 +389,7 @@ class HSDE(Env, VectorFieldMixin):
         patience: int = 25,
         val_every: int = 5,
         early_stop: bool = True,
+        compute_metrics: bool = True,
     ):
         """
         Train the HSDE model.
@@ -403,6 +404,11 @@ class HSDE(Env, VectorFieldMixin):
             Validation frequency (every N epochs)
         early_stop : bool, default=True
             Enable early stopping mechanism
+        compute_metrics : bool, default=True
+            If True, compute clustering metrics (ARI, NMI, etc.) during
+            validation. Set to False for faster training when intermediate
+            metrics are not needed — early stopping will use reconstruction
+            loss on the validation set instead.
 
         Returns
         -------
@@ -418,26 +424,34 @@ class HSDE(Env, VectorFieldMixin):
                 train_loss = self.train_epoch()
 
                 if (epoch + 1) % val_every == 0 or epoch == 0:
-                    val_loss, val_score = self.validate()
+                    if compute_metrics:
+                        val_loss, val_score = self.validate()
+                    else:
+                        val_loss = self.validate_loss()
+                        val_score = None
 
                     if early_stop:
                         should_stop, improved = self.check_early_stopping(
                             val_loss, patience
                         )
 
-                        pbar.set_postfix({
+                        postfix = {
                             "Train": f"{train_loss:.2f}",
                             "Val": f"{val_loss:.2f}",
-                            "ARI": f"{val_score[0]:.2f}",
-                            "NMI": f"{val_score[1]:.2f}",
-                            "ASW": f"{val_score[2]:.2f}",
-                            "CAL": f"{val_score[3]:.2f}",
-                            "DAV": f"{val_score[4]:.2f}",
-                            "COR": f"{val_score[5]:.2f}",
                             "Best": f"{self.best_val_loss:.2f}",
                             "Pat": f"{self.patience_counter}/{patience}",
                             "Imp": "Y" if improved else "N",
-                        })
+                        }
+                        if val_score is not None:
+                            postfix.update({
+                                "ARI": f"{val_score[0]:.2f}",
+                                "NMI": f"{val_score[1]:.2f}",
+                                "ASW": f"{val_score[2]:.2f}",
+                                "CAL": f"{val_score[3]:.2f}",
+                                "DAV": f"{val_score[4]:.2f}",
+                                "COR": f"{val_score[5]:.2f}",
+                            })
+                        pbar.set_postfix(postfix)
 
                         if should_stop:
                             self.actual_epochs = epoch + 1
@@ -446,16 +460,20 @@ class HSDE(Env, VectorFieldMixin):
                             self.load_best_model()
                             break
                     else:
-                        pbar.set_postfix({
+                        postfix = {
                             "Train": f"{train_loss:.2f}",
                             "Val": f"{val_loss:.2f}",
-                            "ARI": f"{val_score[0]:.2f}",
-                            "NMI": f"{val_score[1]:.2f}",
-                            "ASW": f"{val_score[2]:.2f}",
-                            "CAL": f"{val_score[3]:.2f}",
-                            "DAV": f"{val_score[4]:.2f}",
-                            "COR": f"{val_score[5]:.2f}",
-                        })
+                        }
+                        if val_score is not None:
+                            postfix.update({
+                                "ARI": f"{val_score[0]:.2f}",
+                                "NMI": f"{val_score[1]:.2f}",
+                                "ASW": f"{val_score[2]:.2f}",
+                                "CAL": f"{val_score[3]:.2f}",
+                                "DAV": f"{val_score[4]:.2f}",
+                                "COR": f"{val_score[5]:.2f}",
+                            })
+                        pbar.set_postfix(postfix)
 
                 pbar.update(1)
             else:

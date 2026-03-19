@@ -18,7 +18,6 @@ import torch.nn as nn
 import torchsde
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import (
     adjusted_rand_score,
     normalized_mutual_info_score,
@@ -26,9 +25,8 @@ from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
 )
-from scipy.sparse import issparse, csr_matrix
-from scipy.stats import norm
-from typing import Optional, Tuple
+from scipy.sparse import issparse
+from typing import Optional
 from anndata import AnnData
 
 
@@ -154,14 +152,20 @@ class envMixin:
     """Clustering metrics for latent space evaluation."""
 
     def _calc_score_with_labels(self, latent, labels):
+        """Compute clustering metrics using ground truth labels.
+
+        ARI and NMI compare KMeans-predicted clusters against ground truth.
+        ASW, CH, and DB are computed on ground truth labels to measure how
+        well the latent space preserves known biological cell types.
+        """
         n_clusters = len(np.unique(labels))
         pred = KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit_predict(latent)
         return (
             adjusted_rand_score(labels, pred),
             normalized_mutual_info_score(labels, pred),
-            silhouette_score(latent, pred),
-            calinski_harabasz_score(latent, pred),
-            davies_bouldin_score(latent, pred),
+            silhouette_score(latent, labels),
+            calinski_harabasz_score(latent, labels),
+            davies_bouldin_score(latent, labels),
             self._calc_corr(latent),
         )
 
@@ -182,12 +186,13 @@ class envMixin:
         corr = np.abs(np.corrcoef(latent.T))
         return corr.sum(axis=1).mean() - 1
 
-    def _metrics(self, latent, labels):
-        ARI = adjusted_rand_score(self.labels, labels)
-        NMI = normalized_mutual_info_score(self.labels, labels)
-        ASW = silhouette_score(latent, labels)
-        CH = calinski_harabasz_score(latent, labels)
-        DB = davies_bouldin_score(latent, labels)
+    def _metrics(self, latent, pred_labels):
+        """Compute metrics: ARI/NMI vs ground truth, ASW/CH/DB on ground truth."""
+        ARI = adjusted_rand_score(self.labels, pred_labels)
+        NMI = normalized_mutual_info_score(self.labels, pred_labels)
+        ASW = silhouette_score(latent, self.labels)
+        CH = calinski_harabasz_score(latent, self.labels)
+        DB = davies_bouldin_score(latent, self.labels)
         PC = self._calc_corr(latent)
         return ARI, NMI, ASW, CH, DB, PC
 
@@ -253,7 +258,7 @@ class scMixin:
                 else:
                     sc.pp.highly_variable_genes(adata)
                 print("Selecting highly variable genes.")
-        except Exception as e:
+        except (ValueError, KeyError, AttributeError) as e:
             print(f"Error during preprocessing: {e}")
 
     def _decomposition(self, adata: AnnData, tech: str, latent_dim: int) -> None:
@@ -276,7 +281,7 @@ class scMixin:
             latent = decomp_map[tech](n_components=latent_dim).fit_transform(X_hvg)
             adata.obsm[f"X_{tech}"] = latent
             print(f"Stored latent in adata.obsm['X_{tech}'].")
-        except Exception as e:
+        except (ValueError, KeyError, TypeError) as e:
             print(f"Error during decomposition: {e}")
 
     def _batchcorrect(self, adata: AnnData, batch_tech: str, tech: str, layer: str) -> None:
@@ -299,5 +304,5 @@ class scMixin:
                 model = scvi.model.SCVI(adata)
                 model.train()
                 adata.obsm["X_scvi"] = model.get_latent_representation()
-        except Exception as e:
+        except (ValueError, ImportError, RuntimeError) as e:
             print(f"Error during batch correction: {e}")

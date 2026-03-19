@@ -11,8 +11,7 @@ Utility functions combining:
 
 import numpy as np
 from scipy.sparse import issparse, csr_matrix
-from typing import Literal, Tuple, Optional
-import warnings
+from typing import Literal
 import torch
 
 EPS = 1e-8
