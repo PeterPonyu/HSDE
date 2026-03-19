@@ -39,7 +39,7 @@ import scipy.sparse as sp
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.agent import HSDE
+from hsde import HSDE
 
 # ---------------------------------------------------------------------------
 # MoCoO evaluators (DRE + LSE series)
@@ -533,7 +533,7 @@ def main():
     print(f"{'='*70}")
 
     try:
-        from liora.visualization.controller import VisualizationController
+        from hsde.viz.controller import VisualizationController
 
         ctrl = VisualizationController(
             results_dir=TABLES_DIR,

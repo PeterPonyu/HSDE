@@ -30,7 +30,7 @@ from experiments.exp_utils import (
     discover_datasets, get_labels, load_and_preprocess,
     evaluate_latent, get_done_datasets
 )
-from src.agent import HSDE
+from hsde import HSDE
 
 # ── Configuration ──
 EPOCHS = 200

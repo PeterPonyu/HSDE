@@ -31,7 +31,7 @@ from experiments.exp_utils import (
     discover_datasets, get_labels, load_and_preprocess,
     get_dense_X, evaluate_latent, get_done_datasets
 )
-from src.agent import HSDE
+from hsde import HSDE
 
 # External benchmarker models (package import via module alias)
 BENCHMARKER_DIR = os.path.expanduser('~/.copilot/skills/external-benchmarker')

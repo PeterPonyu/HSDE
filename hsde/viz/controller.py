@@ -9,7 +9,7 @@ framework.
 
 Usage
 -----
-    from liora.visualization.controller import VisualizationController
+    from hsde.viz.controller import VisualizationController
 
     ctrl = VisualizationController(results_dir="HSDE_results/ablation/tables")
     ctrl.load_all()

@@ -1,4 +1,4 @@
-"""Configure test environment: ensure src/ is importable."""
+"""Configure test environment: ensure hsde package is importable."""
 import sys
 import os
 

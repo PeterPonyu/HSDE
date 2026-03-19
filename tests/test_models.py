@@ -79,7 +79,7 @@ def device():
 
 def _train_and_check(adata, device, epochs=30, patience=15, **model_kwargs):
     """Train a model and return (model, latent, metrics_dict)."""
-    from src.agent import HSDE
+    from hsde import HSDE
 
     model = HSDE(
         adata, layer="counts",
@@ -144,7 +144,7 @@ class TestBaseVAE:
     """Test the baseline VAE with MLP encoder."""
 
     def test_instantiation(self, synthetic_adata, device):
-        from src.agent import HSDE
+        from hsde import HSDE
         model = HSDE(synthetic_adata, layer="counts", device=device,
                      hidden_dim=64, latent_dim=8, i_dim=2)
         assert model is not None
@@ -364,7 +364,7 @@ class TestSDE:
 class TestLossTypes:
     @pytest.mark.parametrize("loss_type", ["nb", "zinb", "poisson", "zip"])
     def test_loss_type(self, synthetic_adata, device, loss_type):
-        from src.agent import HSDE
+        from hsde import HSDE
         model = HSDE(
             synthetic_adata, layer="counts",
             hidden_dim=64, latent_dim=8, i_dim=2,
@@ -437,19 +437,19 @@ class TestHSDEFull:
 
 class TestParameterValidation:
     def test_invalid_split_sum(self, synthetic_adata, device):
-        from src.agent import HSDE
+        from hsde import HSDE
         with pytest.raises(ValueError, match="Split sizes must sum to 1.0"):
             HSDE(synthetic_adata, layer="counts", device=device,
                  train_size=0.5, val_size=0.5, test_size=0.5)
 
     def test_invalid_idim(self, synthetic_adata, device):
-        from src.agent import HSDE
+        from hsde import HSDE
         with pytest.raises(ValueError, match="Information bottleneck dimension"):
             HSDE(synthetic_adata, layer="counts", device=device,
                  latent_dim=10, i_dim=10)
 
     def test_invalid_sde_weights(self, synthetic_adata, device):
-        from src.agent import HSDE
+        from hsde import HSDE
         with pytest.raises(ValueError, match="SDE weights must sum to 1.0"):
             HSDE(synthetic_adata, layer="counts", device=device,
                  use_sde=True, vae_reg=0.3, sde_reg=0.3)
@@ -467,7 +467,7 @@ class TestVisualizationController:
         if not os.path.exists(tables_dir):
             pytest.skip("Ablation results not found")
 
-        from liora.visualization.controller import VisualizationController
+        from hsde.viz.controller import VisualizationController
         ctrl = VisualizationController(results_dir=tables_dir)
         ctrl.load_all()
 
@@ -483,7 +483,7 @@ class TestVisualizationController:
         if not os.path.exists(tables_dir):
             pytest.skip("Ablation results not found")
 
-        from liora.visualization.controller import VisualizationController
+        from hsde.viz.controller import VisualizationController
         ctrl = VisualizationController(results_dir=tables_dir)
         ctrl.load_all()
 
@@ -503,7 +503,7 @@ class TestVisualizationController:
         if not os.path.exists(tables_dir):
             pytest.skip("Ablation results not found")
 
-        from liora.visualization.controller import VisualizationController
+        from hsde.viz.controller import VisualizationController
         ctrl = VisualizationController(results_dir=tables_dir)
         ctrl.load_all()
 
