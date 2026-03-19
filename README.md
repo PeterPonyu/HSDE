@@ -1,4 +1,4 @@
-# HSDE-Graph
+# HSDE
 
 **Hyperbolic SDE-Regularised VAE with Graph Attention for Single-Cell Omics**
 
@@ -20,82 +20,102 @@ A PyTorch framework that combines variational autoencoders with graph neural net
 ## Project Structure
 
 ```
-├── src/                        # Core framework
-│   ├── agent.py                # HSDE — main user-facing API
-│   ├── environment.py          # Data loading, preprocessing, training loop
-│   ├── model.py                # Multi-objective loss computation, latent extraction
-│   ├── module.py               # Neural network modules (encoders, decoders, VAE)
-│   ├── graph_modules.py        # Graph encoder/decoder with 10+ conv types
-│   ├── graph_utils.py          # Adjacency-to-edge, structural decoders
-│   ├── mixin.py                # Loss mixins (scVI, β-TC, Info, DIP, SDE, ...)
-│   ├── utils.py                # Lorentz geometry, TF-IDF, utilities
-│   ├── vectorfield.py          # Vector field analysis & visualisation
-│   ├── sde_functions.py        # SDE strategies (scaled, constant, annealed, clipped)
-│   └── pde_functions.py        # Graph diffusion PDE
+├── hsde/                          # Main package
+│   ├── __init__.py                # Package root — exports HSDE class
+│   ├── core/                      # Core framework
+│   │   ├── agent.py               # HSDE — main user-facing API
+│   │   ├── environment.py         # Data loading, preprocessing, training loop
+│   │   ├── model.py               # Multi-objective loss computation, latent extraction
+│   │   ├── module.py              # Neural network modules (encoders, decoders, VAE)
+│   │   ├── graph_modules.py       # Graph encoder/decoder with 10+ conv types
+│   │   ├── graph_utils.py         # Adjacency-to-edge, structural decoders
+│   │   ├── mixin.py               # Loss mixins (scVI, β-TC, Info, DIP, SDE, ...)
+│   │   ├── utils.py               # Lorentz geometry, TF-IDF, utilities
+│   │   ├── vectorfield.py         # Vector field analysis & visualisation
+│   │   ├── sde_functions.py       # SDE strategies (scaled, constant, annealed, clipped)
+│   │   └── pde_functions.py       # Graph diffusion PDE
+│   └── viz/                       # Visualization tools
+│       ├── style.py               # Publication figure styling (IEEE J-BHI)
+│       ├── controller.py          # Automated benchmark visualization
+│       └── run_all_visualizations.py
 │
-├── experiments/                # Evaluation & ablation scripts
-│   ├── ablation_skill.py       # Reusable evaluation harness (metrics, LSE, DRE)
-│   └── run_study.py            # Unified ablation & component efficiency study (v2)
+├── experiments/                   # Evaluation & ablation scripts
+│   ├── exp_utils.py               # Shared experiment utilities
+│   ├── run_ablation.py            # Ablation study (5 variants × 12 datasets)
+│   ├── run_disentanglement.py     # Disentanglement regularization comparison
+│   ├── run_gmvae_benchmark.py     # GM-VAE geometric distribution benchmark
+│   ├── downstream_analysis.py     # Full downstream analysis pipeline
+│   └── visualize_studies.py       # Study result visualization
 │
-├── data/                       # Datasets
-│   └── BoneMarrow/
-│       └── human_cd34_bone_marrow.h5ad
+├── tests/                         # Integration tests
+│   ├── conftest.py
+│   └── test_models.py
 │
-├── results/                    # Saved experiment outputs (CSV, JSON, logs)
-│
-├── STUDY_REPORT.md             # Full experimental report with analysis
+├── data/                          # Datasets (not tracked)
+├── HSDE_results/                  # Experiment outputs (not tracked)
+├── pyproject.toml                 # Package configuration & dependencies
+├── STUDY_REPORT.md                # Full experimental report
 ├── LICENSE
 └── README.md
 ```
 
-## Quick Start
+## Installation
+
+```bash
+# Core only
+pip install -e .
+
+# With all optional dependencies
+pip install -e ".[all]"
+
+# Development (includes testing)
+pip install -e ".[dev]"
+```
 
 ### Requirements
 
-- Python ≥ 3.8
+- Python ≥ 3.9
 - PyTorch ≥ 1.12
-- PyTorch Geometric
-- scanpy, scvelo, anndata
-- scikit-learn, scipy, numpy, pandas
+- See `pyproject.toml` for full dependency list
 
-### Basic Usage
+## Quick Start
 
 ```python
-from src.agent import HSDE
+from hsde import HSDE
+import scanpy as sc
 
-model = HSDE()
+# Load data
+adata = sc.read_h5ad("data/BoneMarrow/human_cd34_bone_marrow.h5ad")
 
-# Load and preprocess data
-model.load_data("bone_marrow")  # or provide an AnnData object
-model.preprocess(n_top_genes=2000)
+# Standard MLP encoder
+model = HSDE(adata, layer="counts", latent_dim=10, i_dim=2)
+model.fit(epochs=100, patience=25)
+latent = model.get_latent()
 
-# Configure and train
-model.setup(
-    encoder_type="graph",          # "mlp" | "transformer" | "graph"
-    graph_conv_type="GAT",         # GAT, GCN, SAGE, ChebConv, ...
-    latent_dim=10,
-    information_bottleneck=True,   # enable IB
-    irecon=0.5,                    # IB reconstruction weight
-    geometry="lorentz",            # "lorentz" | "euclidean" | None
-    beta=0.1,                      # KL weight
+# Full model: Graph + Lorentz + SDE + PDE
+model = HSDE(
+    adata, layer="counts",
+    encoder_type="graph", graph_type="GAT",
+    irecon=1.0, lorentz=5.0,
+    use_sde=True, use_pde=True,
+    vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
+    latent_dim=10, i_dim=2,
 )
+model.fit(epochs=400, patience=25)
 
-model.fit(max_epochs=100, patience=20)
-
-# Extract results
-latent = model.get_latent()        # latent representations
-centroids = model.get_centroid()   # deterministic centroids (graph only)
+latent = model.get_latent()
+pseudotime = model.get_time()
+centroids = model.get_centroid()
 ```
 
-### Run the Ablation Study
+### Run Experiments
 
 ```bash
-python experiments/run_study.py --epochs 100 --n_cells 3000 --n_genes 2000 --patience 20 --part all
+python experiments/run_ablation.py
+python experiments/run_disentanglement.py
+python experiments/run_gmvae_benchmark.py
+python experiments/downstream_analysis.py
 ```
-
-Parts can be run individually: `--part encoder`, `--part component`, `--part ablation`.
-
-Results are saved to `results/study_*.csv`, `results/study_*.json`, and `results/study_full_log.txt`.
 
 ## Design Rule
 
@@ -105,7 +125,7 @@ Results are saved to `results/study_*.csv`, `results/study_*.json`, and `results
 
 ## Key Results
 
-From the unified study (v2) on Setty Bone Marrow (3 000 cells, 2 000 HVGs, ≤ 100 epochs):
+From the unified study on Setty Bone Marrow (3 000 cells, 2 000 HVGs, ≤ 100 epochs):
 
 | Finding | Detail |
 |---------|--------|
