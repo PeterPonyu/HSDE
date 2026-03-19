@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LIORA Downstream Analysis
+HSDE Downstream Analysis
 ===========================
 
 Comprehensive downstream analysis pipeline that:
@@ -8,7 +8,7 @@ Comprehensive downstream analysis pipeline that:
 2. Computes full DRE + LSE + clustering metrics via MoCoO evaluators
 3. Generates cross-dataset comparison tables
 4. Produces statistical significance tests (Wilcoxon signed-rank)
-5. Generates publication-quality figures via the LIORA visualization controller
+5. Generates publication-quality figures via the HSDE visualization controller
 6. Computes per-component effectiveness analysis
 7. Produces a final report
 
@@ -361,7 +361,7 @@ def generate_report(all_results, effectiveness_df, output_dir):
     """Generate a comprehensive analysis report."""
     report_lines = []
     report_lines.append("=" * 70)
-    report_lines.append("LIORA DOWNSTREAM ANALYSIS REPORT")
+    report_lines.append("HSDE DOWNSTREAM ANALYSIS REPORT")
     report_lines.append("=" * 70)
     report_lines.append("")
 
@@ -465,7 +465,7 @@ def main():
         return
 
     print(f"\n{'='*70}")
-    print(f"LIORA DOWNSTREAM ANALYSIS")
+    print(f"HSDE DOWNSTREAM ANALYSIS")
     print(f"Variants: {method_names}")
     print(f"Datasets: {list(available.keys())}")
     print(f"Epochs: {EPOCHS}, Patience: {PATIENCE}")
@@ -527,7 +527,7 @@ def main():
     # ── Generate report ──
     generate_report(all_results, effectiveness_df, RESULTS_DIR)
 
-    # ── Generate figures via LIORA visualization controller ──
+    # ── Generate figures via HSDE visualization controller ──
     print(f"\n{'='*70}")
     print("GENERATING FIGURES")
     print(f"{'='*70}")

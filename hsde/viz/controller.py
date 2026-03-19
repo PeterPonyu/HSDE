@@ -1,9 +1,9 @@
 """
-LIORA Automatic Visualization Controller
+HSDE Automatic Visualization Controller
 ==========================================
 
 Fully automatic system for loading, computing, and visualizing metrics from
-the LIORA benchmark results. Integrates the DRE (Dimensionality Reduction
+the HSDE benchmark results. Integrates the DRE (Dimensionality Reduction
 Evaluator) and LSE (Latent Space Evaluator) series from the MoCoO evaluation
 framework.
 
@@ -85,7 +85,7 @@ METRIC_GROUPS = {
 
 
 class VisualizationController:
-    """Fully automatic visualization system for LIORA benchmark results.
+    """Fully automatic visualization system for HSDE benchmark results.
 
     Loads CSV result tables from a directory, extracts DRE and LSE series
     metrics, and generates publication-quality figures matching the MoCoO
@@ -100,7 +100,7 @@ class VisualizationController:
     method_order : list of str, optional
         Display order. Defaults to method_names order.
     palette : dict or list, optional
-        Color mapping. Defaults to LIORA palette.
+        Color mapping. Defaults to HSDE palette.
     """
 
     def __init__(
@@ -521,7 +521,7 @@ class VisualizationController:
             [S.get_display_name(m) for m in methods],
             fontsize=S.FS_TICK,
         )
-        ax.set_title("LIORA Benchmark Summary", fontsize=S.FS_TITLE + 1,
+        ax.set_title("HSDE Benchmark Summary", fontsize=S.FS_TITLE + 1,
                       fontweight="bold", pad=10)
 
         cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
@@ -571,8 +571,8 @@ class VisualizationController:
         lines = []
         lines.append("\\begin{table}[htbp]")
         lines.append("\\centering")
-        lines.append("\\caption{LIORA benchmark results (mean $\\pm$ std across datasets)}")
-        lines.append("\\label{tab:liora_benchmark}")
+        lines.append("\\caption{HSDE benchmark results (mean $\\pm$ std across datasets)}")
+        lines.append("\\label{tab:hsde_benchmark}")
 
         col_spec = "l" + "c" * len(proposed)
         lines.append(f"\\begin{{tabular}}{{{col_spec}}}")

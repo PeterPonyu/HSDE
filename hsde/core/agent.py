@@ -1,5 +1,5 @@
 """
-HSDE: Lorentz Information-bottleneck Omics Representation Architecture
+HSDE: Hyperbolic SDE-Regularized VAE
 =======================================================================
 
 A unified deep learning framework for single-cell omics analysis combining:
@@ -31,7 +31,7 @@ import numpy as np
 
 class HSDE(Env, VectorFieldMixin):
     """
-    HSDE: Lorentz Information-bottleneck Omics Representation Architecture
+    HSDE: Hyperbolic SDE-Regularized VAE
 
     A unified framework for single-cell omics analysis (scRNA-seq and scATAC-seq)
     that learns low-dimensional representations while preserving both local

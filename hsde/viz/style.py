@@ -1,9 +1,9 @@
 """
-Centralized style configuration for LIORA publication figures.
+Centralized style configuration for HSDE publication figures.
 
 Matches the MoCoO article style (IEEE J-BHI format):
 - 17 x 21 cm page, 300 DPI, Arial/Liberation Sans font
-- Wong colorblind-safe palette adapted for LIORA configurations
+- Wong colorblind-safe palette adapted for HSDE configurations
 - Absolute-geometry layout (no tight_layout)
 
 All figure scripts import from here to ensure visual consistency.
@@ -47,7 +47,7 @@ FS_LEGEND = 9
 FS_SMALL = 8
 
 # ---------------------------------------------------------------------------
-# LIORA model configurations: canonical order and display names
+# HSDE model configurations: canonical order and display names
 # ---------------------------------------------------------------------------
 _CONFIG_ORDER: List[str] = [
     "VAE",
@@ -75,8 +75,8 @@ _DISPLAY_NAMES: Dict[str, str] = {
     "IRecon-VAE": "IRecon-VAE",
     "Lorentz-VAE": "Lorentz-VAE",
     "GM-VAE": "GM-VAE",
-    "HSDE (Full)": "LIORA",
-    "HSDE": "LIORA",
+    "HSDE (Full)": "HSDE",
+    "HSDE": "HSDE",
 }
 
 # Short names for tight x-tick labels
@@ -85,7 +85,7 @@ _SHORT_NAMES: Dict[str, str] = {
     "IRecon-VAE": "IR",
     "Lorentz-VAE": "Lor",
     "GM-VAE": "GM",
-    "HSDE (Full)": "LIORA",
+    "HSDE (Full)": "HSDE",
 }
 
 # Extended configs (benchmark comparison with external methods)
@@ -104,7 +104,7 @@ _BENCHMARK_PALETTE: List[str] = [
     "#E69F00",  # GAT+IB
     "#009E73",  # GAT+IB+Lorentz
     "#CC79A7",  # GAT+IB+Lorentz+SDE
-    "#D55E00",  # GAT+IB+Lorentz+SDE+PDE (LIORA Full)
+    "#D55E00",  # GAT+IB+Lorentz+SDE+PDE (HSDE Full)
 ]
 
 _BENCHMARK_COLORS: Dict[str, str] = OrderedDict(

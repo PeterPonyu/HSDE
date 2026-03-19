@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LIORA Model Workability Tests
+HSDE Model Workability Tests
 ==============================
 
 Tests that all base model configurations are actually workable and effective:

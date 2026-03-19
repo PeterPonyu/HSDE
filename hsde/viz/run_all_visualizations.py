@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-LIORA: Run All Visualizations
+HSDE: Run All Visualizations
 ==============================
 
-Fully automatic script that discovers all LIORA benchmark results and
+Fully automatic script that discovers all HSDE benchmark results and
 generates publication-quality figures for every experiment series.
 
 Covers:
-  1. Ablation study (VAE -> IRecon-VAE -> Lorentz-VAE -> GM-VAE -> LIORA)
-  2. GM-VAE geometric benchmark (5 external GM-VAE + LIORA)
-  3. Disentanglement regularization (VAE, beta-VAE, DIP, TC, Info, LIORA)
+  1. Ablation study (VAE -> IRecon-VAE -> Lorentz-VAE -> GM-VAE -> HSDE)
+  2. GM-VAE geometric benchmark (5 external GM-VAE + HSDE)
+  3. Disentanglement regularization (VAE, beta-VAE, DIP, TC, Info, HSDE)
   4. Cross-dataset benchmark (MLP, GAT, GAT+IB, GAT+IB+Lor, etc.)
 
 For each series, generates:
@@ -24,7 +24,7 @@ For each series, generates:
   - Statistical significance tables
 
 Usage:
-    python -m liora.visualization.run_all_visualizations
+    python -m hsde.viz.run_all_visualizations
 """
 
 import os
@@ -89,7 +89,7 @@ def main():
     benchmark_base = PROJECT_ROOT / "benchmark_results"
 
     print(f"\n{'#'*70}")
-    print(f"  LIORA: Automatic Visualization System")
+    print(f"  HSDE: Automatic Visualization System")
     print(f"  Project: {PROJECT_ROOT}")
     print(f"{'#'*70}")
 
