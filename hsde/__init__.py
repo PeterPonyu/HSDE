@@ -1,6 +1,6 @@
 """
-LIORA: Lorentz Information-bottleneck Omics Representation Architecture
-=======================================================================
+HSDE: Hyperbolic SDE-Regularized VAE
+=====================================
 
 A unified deep learning framework for single-cell omics analysis combining:
 - Variational Autoencoder (VAE) with count-based likelihoods (NB, ZINB, Poisson, ZIP)
@@ -9,17 +9,15 @@ A unified deep learning framework for single-cell omics analysis combining:
 - Neural SDE regularization for trajectory inference
 - Graph PDE diffusion for latent smoothing
 - Graph neural network encoders (GAT, GCN, ChebConv, SAGE, etc.)
-- Graph structure decoders for adjacency learning (CCVGAE)
-- Transformer-based attention mechanisms
-
-Supports scRNA-seq and scATAC-seq modalities.
-
-Version: 2.0.0
-Author: Zeyu Fu (School of Computer Science, University of Birmingham)
-License: MIT
+- Multi-encoder: MLP, Transformer, and Graph backbones
+- Disentanglement: beta-VAE, DIP-VAE, TC-VAE, InfoVAE regularizers
 """
+
+from .core.agent import HSDE
+
+__all__ = ["HSDE"]
 
 __version__ = "2.0.0"
 __author__ = "Zeyu Fu"
-__project__ = "LIORA"
-__full_name__ = "Lorentz Information-bottleneck Omics Representation Architecture"
+__project__ = "HSDE"
+__full_name__ = "Hyperbolic SDE-Regularized VAE"
