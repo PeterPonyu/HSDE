@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import warnings
 from typing import Optional
 from sklearn.metrics.pairwise import pairwise_distances
 from .mixin import scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin
@@ -170,7 +171,6 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
     # ========================================================================
 
     @torch.no_grad()
-    @torch.no_grad()
     def take_latent(self, state, edge_index=None, edge_weight=None):
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
         ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
@@ -312,6 +312,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
 
         if torch.isnan(states_norm).any() or torch.isinf(states_norm).any():
+            warnings.warn("Skipping update: NaN or Inf detected in input states", RuntimeWarning)
             return
 
         outputs = self.nn(states_norm, ei, ew)
@@ -378,6 +379,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
                     geometric_loss = self.lorentz * dist.mean()
 
         if torch.isnan(q_m).any() or torch.isnan(q_s).any():
+            warnings.warn("Skipping update: NaN detected in posterior parameters (q_m, q_s)", RuntimeWarning)
             return
 
         # KL divergence
@@ -398,6 +400,10 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss + adj_loss
 
         if torch.isnan(total_loss) or torch.isinf(total_loss):
+            warnings.warn(
+                f"Skipping update: total_loss is {'NaN' if torch.isnan(total_loss) else 'Inf'}",
+                RuntimeWarning,
+            )
             return
 
         self.nn_optimizer.zero_grad()

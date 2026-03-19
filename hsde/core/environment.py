@@ -15,9 +15,8 @@ from scipy.sparse import issparse
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import LabelEncoder
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
-from typing import Optional, List, Tuple
+from typing import Optional
 
 
 def is_raw_counts(X, threshold=0.5):

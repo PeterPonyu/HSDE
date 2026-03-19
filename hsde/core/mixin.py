@@ -18,7 +18,6 @@ import torch.nn as nn
 import torchsde
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import (
     adjusted_rand_score,
     normalized_mutual_info_score,
@@ -26,9 +25,8 @@ from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
 )
-from scipy.sparse import issparse, csr_matrix
-from scipy.stats import norm
-from typing import Optional, Tuple
+from scipy.sparse import issparse
+from typing import Optional
 from anndata import AnnData
 
 
@@ -260,7 +258,7 @@ class scMixin:
                 else:
                     sc.pp.highly_variable_genes(adata)
                 print("Selecting highly variable genes.")
-        except Exception as e:
+        except (ValueError, KeyError, AttributeError) as e:
             print(f"Error during preprocessing: {e}")
 
     def _decomposition(self, adata: AnnData, tech: str, latent_dim: int) -> None:
@@ -283,7 +281,7 @@ class scMixin:
             latent = decomp_map[tech](n_components=latent_dim).fit_transform(X_hvg)
             adata.obsm[f"X_{tech}"] = latent
             print(f"Stored latent in adata.obsm['X_{tech}'].")
-        except Exception as e:
+        except (ValueError, KeyError, TypeError) as e:
             print(f"Error during decomposition: {e}")
 
     def _batchcorrect(self, adata: AnnData, batch_tech: str, tech: str, layer: str) -> None:
@@ -306,5 +304,5 @@ class scMixin:
                 model = scvi.model.SCVI(adata)
                 model.train()
                 adata.obsm["X_scvi"] = model.get_latent_representation()
-        except Exception as e:
+        except (ValueError, ImportError, RuntimeError) as e:
             print(f"Error during batch correction: {e}")

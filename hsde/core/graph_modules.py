@@ -8,7 +8,7 @@ Supports: GAT, GCN, Cheb, SAGE, Graph, TAG, ARMA, Transformer, SG, SSG.
 Integrated from PeterPonyu/CCVGAE with adaptations for the unified framework.
 """
 
-from typing import Dict, Optional, Tuple, Type, Union
+from typing import Dict, Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
