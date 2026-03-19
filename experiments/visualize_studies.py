@@ -24,8 +24,11 @@ from pathlib import Path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-# REA.py
-SKILL_DIR = os.path.expanduser('~/.copilot/skills/results-visualizer')
+# REA.py (configurable via HSDE_VISUALIZER_DIR env var)
+SKILL_DIR = os.environ.get(
+    "HSDE_VISUALIZER_DIR",
+    os.path.expanduser("~/.copilot/skills/results-visualizer"),
+)
 sys.path.insert(0, SKILL_DIR)
 from REA import RigorousExperimentalAnalyzer, create_publication_figure, SERIES_PALETTES
 

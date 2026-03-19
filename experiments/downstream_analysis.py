@@ -44,7 +44,10 @@ from hsde import HSDE
 # ---------------------------------------------------------------------------
 # MoCoO evaluators (DRE + LSE series)
 # ---------------------------------------------------------------------------
-MOCOO_EVAL_DIR = Path.home() / "Desktop" / "MoCoO" / "mocoo" / "evaluation"
+MOCOO_EVAL_DIR = Path(os.environ.get(
+    "HSDE_MOCOO_DIR",
+    str(Path.home() / "Desktop" / "MoCoO" / "mocoo" / "evaluation"),
+))
 sys.path.insert(0, str(MOCOO_EVAL_DIR.parent.parent))
 
 from mocoo.evaluation.dre import DimensionalityReductionEvaluator

@@ -33,8 +33,11 @@ from experiments.exp_utils import (
 )
 from hsde import HSDE
 
-# External benchmarker models (package import via module alias)
-BENCHMARKER_DIR = os.path.expanduser('~/.copilot/skills/external-benchmarker')
+# External benchmarker models (configurable via HSDE_BENCHMARKER_DIR env var)
+BENCHMARKER_DIR = os.environ.get(
+    "HSDE_BENCHMARKER_DIR",
+    os.path.expanduser("~/.copilot/skills/external-benchmarker"),
+)
 sys.path.insert(0, os.path.dirname(BENCHMARKER_DIR))
 _pkg = types.ModuleType('external_benchmarker')
 _pkg.__path__ = [BENCHMARKER_DIR]

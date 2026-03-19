@@ -24,9 +24,20 @@ import scipy.sparse as sp
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-# Add evaluator
-sys.path.insert(0, os.path.expanduser('~/.copilot/skills/latent-space-evaluator'))
-from metrics_expanded import compute_all_metrics
+# Add evaluator (configurable via HSDE_EVALUATOR_DIR env var)
+_EVALUATOR_DIR = os.environ.get(
+    "HSDE_EVALUATOR_DIR",
+    os.path.expanduser("~/.copilot/skills/latent-space-evaluator"),
+)
+if os.path.isdir(_EVALUATOR_DIR):
+    sys.path.insert(0, _EVALUATOR_DIR)
+try:
+    from metrics_expanded import compute_all_metrics
+except ImportError:
+    raise ImportError(
+        f"Cannot import metrics_expanded. Set HSDE_EVALUATOR_DIR env var "
+        f"or install the latent-space-evaluator package. Checked: {_EVALUATOR_DIR}"
+    )
 
 # ── Constants ──
 MAX_CELLS = 3000
@@ -54,13 +65,24 @@ SELECTED_DATASETS = [
 
 
 def discover_datasets():
-    """Find all h5ad files and filter to selected 12."""
-    all_files = (
-        glob.glob(os.path.expanduser('~/Downloads/CancerDatasets2/*.h5ad')) +
-        glob.glob(os.path.expanduser('~/Downloads/CancerDatasets/*.h5ad')) +
-        glob.glob(os.path.expanduser('~/Downloads/DevelopmentDatasets2/*.h5ad')) +
-        glob.glob(os.path.expanduser('~/Downloads/DevelopmentDatasets/*.h5ad'))
-    )
+    """Find all h5ad files and filter to selected 12.
+
+    Dataset directories are configurable via the HSDE_DATASET_DIRS environment
+    variable (colon-separated list of paths). Falls back to ~/Downloads/ defaults.
+    """
+    _dataset_dirs_env = os.environ.get("HSDE_DATASET_DIRS", "")
+    if _dataset_dirs_env:
+        search_dirs = _dataset_dirs_env.split(os.pathsep)
+    else:
+        search_dirs = [
+            os.path.expanduser("~/Downloads/CancerDatasets2"),
+            os.path.expanduser("~/Downloads/CancerDatasets"),
+            os.path.expanduser("~/Downloads/DevelopmentDatasets2"),
+            os.path.expanduser("~/Downloads/DevelopmentDatasets"),
+        ]
+    all_files = []
+    for d in search_dirs:
+        all_files.extend(glob.glob(os.path.join(d, "*.h5ad")))
     all_files = [f for f in all_files if not any(e in f for e in EXCLUDE)]
 
     selected = []
