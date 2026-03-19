@@ -144,11 +144,11 @@ def load_and_preprocess(filepath):
     sc.pp.highly_variable_genes(adata, n_top_genes=N_HVG)
 
     # 5. Subsample cells to fixed size
-    np.random.seed(SEED)
+    rng = np.random.default_rng(SEED)
     if adata.shape[0] > MAX_CELLS:
-        idxs = np.random.choice(adata.shape[0], MAX_CELLS, replace=False)
+        idxs = rng.choice(adata.shape[0], MAX_CELLS, replace=False)
     else:
-        idxs = np.random.permutation(adata.shape[0])
+        idxs = rng.permutation(adata.shape[0])
 
     # 6. Subset to (subsampled cells) x (HVG genes) and COPY
     adata1 = adata[idxs, adata.var['highly_variable']].copy()

@@ -84,3 +84,6 @@ figures/
 *.json
 *.png
 *.pdf
+
+# Editor/tool artifacts
+apply-cursor-agent-edits.prompt.md

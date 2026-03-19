@@ -39,11 +39,16 @@ BENCHMARKER_DIR = os.environ.get(
     os.path.expanduser("~/.copilot/skills/external-benchmarker"),
 )
 sys.path.insert(0, os.path.dirname(BENCHMARKER_DIR))
-_pkg = types.ModuleType('external_benchmarker')
-_pkg.__path__ = [BENCHMARKER_DIR]
-_pkg.__package__ = 'external_benchmarker'
-sys.modules['external_benchmarker'] = _pkg
-from external_benchmarker.unified_models import create_gmvae_model
+try:
+    _pkg = types.ModuleType('external_benchmarker')
+    _pkg.__path__ = [BENCHMARKER_DIR]
+    _pkg.__package__ = 'external_benchmarker'
+    sys.modules['external_benchmarker'] = _pkg
+    from external_benchmarker.unified_models import create_gmvae_model
+    HAS_BENCHMARKER = True
+except (ImportError, ModuleNotFoundError, FileNotFoundError):
+    HAS_BENCHMARKER = False
+    create_gmvae_model = None
 
 # ── Configuration ──
 EPOCHS = 200
@@ -150,6 +155,12 @@ def run_hsde_full(adata1, dataset_name):
 
 
 def main():
+    if not HAS_BENCHMARKER:
+        print("ERROR: external-benchmarker package not found.")
+        print(f"  Expected at: {BENCHMARKER_DIR}")
+        print("  Set HSDE_BENCHMARKER_DIR env var to the correct path.")
+        sys.exit(1)
+
     datasets = discover_datasets()
     done = get_done_datasets(TABLES_DIR, PREFIX)
 

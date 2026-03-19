@@ -50,8 +50,14 @@ MOCOO_EVAL_DIR = Path(os.environ.get(
 ))
 sys.path.insert(0, str(MOCOO_EVAL_DIR.parent.parent))
 
-from mocoo.evaluation.dre import DimensionalityReductionEvaluator
-from mocoo.evaluation.lse import SingleCellLatentSpaceEvaluator
+try:
+    from mocoo.evaluation.dre import DimensionalityReductionEvaluator
+    from mocoo.evaluation.lse import SingleCellLatentSpaceEvaluator
+    HAS_MOCOO = True
+except (ImportError, ModuleNotFoundError):
+    HAS_MOCOO = False
+    DimensionalityReductionEvaluator = None
+    SingleCellLatentSpaceEvaluator = None
 
 # Extended evaluators
 try:
@@ -150,11 +156,11 @@ def load_and_preprocess(filepath):
     sc.pp.log1p(adata)
     sc.pp.highly_variable_genes(adata, n_top_genes=N_HVG)
 
-    np.random.seed(SEED)
+    rng = np.random.default_rng(SEED)
     if adata.shape[0] > MAX_CELLS:
-        idxs = np.random.choice(adata.shape[0], MAX_CELLS, replace=False)
+        idxs = rng.choice(adata.shape[0], MAX_CELLS, replace=False)
     else:
-        idxs = np.random.permutation(adata.shape[0])
+        idxs = rng.permutation(adata.shape[0])
 
     adata1 = adata[idxs, adata.var["highly_variable"]].copy()
     print(f"  Preprocessed: {adata.n_obs} -> {adata1.n_obs} cells, "
@@ -454,6 +460,12 @@ def generate_report(all_results, effectiveness_df, output_dir):
 # ---------------------------------------------------------------------------
 
 def main():
+    if not HAS_MOCOO:
+        print("ERROR: MoCoO evaluation package not found.")
+        print(f"  Expected at: {MOCOO_EVAL_DIR}")
+        print("  Set HSDE_MOCOO_DIR env var to the correct evaluation directory.")
+        sys.exit(1)
+
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 

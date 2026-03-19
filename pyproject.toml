@@ -45,6 +45,7 @@ all = [
 dev = [
     "pytest",
     "torchsde",
+    "scanpy",
     "matplotlib",
     "seaborn",
 ]

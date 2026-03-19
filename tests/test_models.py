@@ -325,6 +325,10 @@ class TestGraphEncoder:
 # ---------------------------------------------------------------------------
 
 class TestSDE:
+    @pytest.fixture(autouse=True)
+    def _require_torchsde(self):
+        pytest.importorskip("torchsde", reason="torchsde not installed")
+
     def test_sde_training(self, synthetic_adata, device):
         model, latent = _train_and_check(
             synthetic_adata, device, epochs=50,
@@ -384,9 +388,13 @@ class TestLossTypes:
 class TestHSDEFull:
     def test_full_model(self, synthetic_adata, device):
         try:
-            import torch_geometric
+            import torch_geometric  # noqa: F401
         except ImportError:
             pytest.skip("torch_geometric not installed")
+        try:
+            import torchsde  # noqa: F401
+        except ImportError:
+            pytest.skip("torchsde not installed")
 
         model, latent = _train_and_check(
             synthetic_adata, device, epochs=50,
@@ -400,9 +408,13 @@ class TestHSDEFull:
 
     def test_full_model_all_outputs(self, synthetic_adata, device):
         try:
-            import torch_geometric
+            import torch_geometric  # noqa: F401
         except ImportError:
             pytest.skip("torch_geometric not installed")
+        try:
+            import torchsde  # noqa: F401
+        except ImportError:
+            pytest.skip("torchsde not installed")
 
         model, latent = _train_and_check(
             synthetic_adata, device, epochs=30,
