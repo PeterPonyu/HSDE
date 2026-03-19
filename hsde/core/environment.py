@@ -8,6 +8,8 @@ Unified environment merging HSDE and CCVGAE data handling:
 - Supports both MLP/Transformer (batch-based) and Graph (graph-based) training
 """
 
+import logging
+
 from .model import HSDEModel
 from .mixin import envMixin, scMixin
 import numpy as np
@@ -17,6 +19,8 @@ from sklearn.preprocessing import LabelEncoder
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def is_raw_counts(X, threshold=0.5):
@@ -183,9 +187,9 @@ class Env(HSDEModel, envMixin, scMixin):
         X_raw = X.astype(np.float32)
 
         stats = compute_dataset_stats(X)
-        print("Dataset statistics:")
-        print(f"  Cells: {X.shape[0]:,}, Genes: {X.shape[1]:,}")
-        print(f"  Sparsity: {stats['sparsity']:.2%}, "
+        logger.info("Dataset statistics:")
+        logger.info(f"  Cells: {X.shape[0]:,}, Genes: {X.shape[1]:,}")
+        logger.info(f"  Sparsity: {stats['sparsity']:.2%}, "
               f"Lib size: {stats['lib_size_mean']:.0f}±{stats['lib_size_std']:.0f}")
 
         X_log = np.log1p(X)
@@ -213,10 +217,10 @@ class Env(HSDEModel, envMixin, scMixin):
             try:
                 self.labels = KMeans(n_clusters=latent_dim, n_init=10, random_state=self.random_seed).fit_predict(X_norm)
             except Exception:
-                self.labels = np.random.randint(0, latent_dim, size=self.n_obs)
+                self.labels = np.random.default_rng(self.random_seed).integers(0, latent_dim, size=self.n_obs)
 
-        np.random.seed(self.random_seed)
-        indices = np.random.permutation(self.n_obs)
+        rng = np.random.default_rng(self.random_seed)
+        indices = rng.permutation(self.n_obs)
         n_train = int(self.train_size * self.n_obs)
         n_val = int(self.val_size * self.n_obs)
 
@@ -300,8 +304,8 @@ class Env(HSDEModel, envMixin, scMixin):
         self.y = np.arange(self.n_obs)
         self.idx = np.arange(self.n_obs)
 
-        np.random.seed(self.random_seed)
-        indices = np.random.permutation(self.n_obs)
+        rng = np.random.default_rng(self.random_seed)
+        indices = rng.permutation(self.n_obs)
         n_train = int(self.train_size * self.n_obs)
         n_val = int(self.val_size * self.n_obs)
         self.train_idx = indices[:n_train]
@@ -319,8 +323,8 @@ class Env(HSDEModel, envMixin, scMixin):
         self.labels_val = self.labels[self.val_idx]
         self.labels_test = self.labels[self.test_idx]
 
-        print(f"\nGraph constructed: {self.n_obs} nodes, {len(coo.data)} edges")
-        print(f"Data split: Train={len(self.train_idx)}, Val={len(self.val_idx)}, Test={len(self.test_idx)}")
+        logger.info(f"Graph constructed: {self.n_obs} nodes, {len(coo.data)} edges")
+        logger.info(f"Data split: Train={len(self.train_idx)}, Val={len(self.val_idx)}, Test={len(self.test_idx)}")
 
     # ========================================================================
     # DataLoaders (for MLP/Transformer)
@@ -421,4 +425,4 @@ class Env(HSDEModel, envMixin, scMixin):
     def load_best_model(self):
         if self.best_model_state is not None:
             self.nn.load_state_dict(self.best_model_state)
-            print(f"Loaded best model (val_loss={self.best_val_loss:.4f})")
+            logger.info(f"Loaded best model (val_loss={self.best_val_loss:.4f})")

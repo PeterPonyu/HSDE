@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import glob
 import json
+import logging
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -33,6 +34,8 @@ import matplotlib.patheffects as pe
 from scipy import stats as scipy_stats
 
 from . import style as S
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -181,8 +184,8 @@ class VisualizationController:
         self._build_summary()
         self._loaded = True
 
-        print(f"Loaded {len(self.raw_data)} datasets, "
-              f"{len(self.method_names)} methods")
+        logger.info("Loaded %d datasets, %d methods",
+                     len(self.raw_data), len(self.method_names))
         return self
 
     def _build_long_data(self):
@@ -285,7 +288,7 @@ class VisualizationController:
                 if m in self.long_data["metric"].values
             ]
             if not available:
-                print(f"  Skipping {group_name}: no metrics available")
+                logger.debug("Skipping %s: no metrics available", group_name)
                 continue
 
             try:
@@ -300,11 +303,10 @@ class VisualizationController:
                 S.save_figure(fig, str(outpath))
                 plt.close(fig)
                 results[group_name] = str(outpath)
-                print(f"  Generated: {outpath}")
+                logger.info("Generated: %s", outpath)
             except Exception as e:
                 warnings.warn(f"Failed to generate {group_name}: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.debug("Traceback for %s failure:", group_name, exc_info=True)
 
         # Summary heatmap
         try:
@@ -313,7 +315,7 @@ class VisualizationController:
             S.save_figure(fig, str(outpath))
             plt.close(fig)
             results["summary_heatmap"] = str(outpath)
-            print(f"  Generated: {outpath}")
+            logger.info("Generated: %s", outpath)
         except Exception as e:
             warnings.warn(f"Failed to generate summary heatmap: {e}")
 
@@ -322,7 +324,7 @@ class VisualizationController:
             table_path = output_dir / "mean_std_table.csv"
             self._save_summary_table(table_path)
             results["summary_table"] = str(table_path)
-            print(f"  Generated: {table_path}")
+            logger.info("Generated: %s", table_path)
         except Exception as e:
             warnings.warn(f"Failed to save summary table: {e}")
 
@@ -331,7 +333,7 @@ class VisualizationController:
             tex_path = output_dir / "mean_std_table.tex"
             self._save_latex_table(tex_path)
             results["latex_table"] = str(tex_path)
-            print(f"  Generated: {tex_path}")
+            logger.info("Generated: %s", tex_path)
         except Exception as e:
             warnings.warn(f"Failed to save LaTeX table: {e}")
 
@@ -341,7 +343,7 @@ class VisualizationController:
                 sig_path = output_dir / "statistical_summary.csv"
                 self._save_significance_table(sig_path, sig_pairs)
                 results["significance"] = str(sig_path)
-                print(f"  Generated: {sig_path}")
+                logger.info("Generated: %s", sig_path)
             except Exception as e:
                 warnings.warn(f"Failed to save significance: {e}")
 

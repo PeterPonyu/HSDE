@@ -92,6 +92,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         self.use_graph_decoder = use_graph_decoder
         self.w_adj = w_adj
         self.graph_loss_weight = graph_loss_weight
+        self._nan_skip_count = 0
 
         self.nn = VAE(
             state_dim, hidden_dim, latent_dim, i_dim,
@@ -301,6 +302,25 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         return q_z_pde.cpu().numpy()
 
     # ========================================================================
+    # NaN escalation
+    # ========================================================================
+
+    _NAN_SKIP_LIMIT = 50
+
+    def _nan_escalate(self, reason: str):
+        """Track consecutive NaN skips and escalate if threshold is exceeded."""
+        self._nan_skip_count += 1
+        warnings.warn(
+            f"Skipping update ({self._nan_skip_count}/{self._NAN_SKIP_LIMIT}): {reason}",
+            RuntimeWarning,
+        )
+        if self._nan_skip_count >= self._NAN_SKIP_LIMIT:
+            raise RuntimeError(
+                f"Training diverged: {self._nan_skip_count} consecutive NaN/Inf updates. "
+                "Consider lowering learning rate or checking input data."
+            )
+
+    # ========================================================================
     # Training update step
     # ========================================================================
 
@@ -312,59 +332,41 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
 
         if torch.isnan(states_norm).any() or torch.isinf(states_norm).any():
-            warnings.warn("Skipping update: NaN or Inf detected in input states", RuntimeWarning)
+            self._nan_escalate("NaN or Inf detected in input states")
             return
 
         outputs = self.nn(states_norm, ei, ew)
 
-        # Unpack outputs based on mode
-        if self.use_sde:
-            if self.use_pde:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, q_z_sde, pred_x_sde, dropout_x_sde,
-                 x_sorted, t, q_z_pde, pred_x_pde, dropout_x_pde, pred_a) = outputs
-            else:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, q_z_sde, pred_x_sde, dropout_x_sde,
-                 x_sorted, t, pred_a) = outputs
+        # Access outputs via named attributes (ForwardOutput dataclass)
+        q_z, q_m, q_s = outputs.q_z, outputs.q_m, outputs.q_s
+        pred_x, dropout_x = outputs.pred_x, outputs.dropout_x
+        le, ld, pred_xl, dropout_xl = outputs.le, outputs.ld, outputs.pred_xl, outputs.dropout_xl
+        z_manifold, ld_manifold = outputs.z_manifold, outputs.ld_manifold
+        pred_a = outputs.pred_a
 
-            qz_div = F.mse_loss(q_z, q_z_sde, reduction="none").sum(-1).mean()
-            target_raw = x_sorted  # SDE reorders input
+        if self.use_sde:
+            qz_div = F.mse_loss(q_z, outputs.q_z_sde, reduction="none").sum(-1).mean()
+            target_raw = outputs.x_sorted  # SDE reorders input
 
             recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
-            recon_loss += self.recon * self._compute_reconstruction_loss(target_raw, pred_x_sde, dropout_x_sde)
-
-            if self.use_pde:
-                qz_div += self.pde_reg * F.mse_loss(q_z, q_z_pde, reduction="none").sum(-1).mean()
-                recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
-                    target_raw, pred_x_pde, dropout_x_pde
-                )
-
-            irecon_loss = torch.tensor(0.0, device=self.device)
-            if self.irecon > 0:
-                irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
+            recon_loss += self.recon * self._compute_reconstruction_loss(
+                target_raw, outputs.pred_x_sde, outputs.dropout_x_sde
+            )
         else:
-            if self.use_pde:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, q_z_pde, pred_x_pde, dropout_x_pde, pred_a) = outputs
-            else:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, pred_a) = outputs
-
             qz_div = torch.tensor(0.0, device=self.device)
             target_raw = states_raw
 
             recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
 
-            if self.use_pde:
-                qz_div += self.pde_reg * F.mse_loss(q_z, q_z_pde, reduction="none").sum(-1).mean()
-                recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
-                    target_raw, pred_x_pde, dropout_x_pde
-                )
+        if self.use_pde:
+            qz_div += self.pde_reg * F.mse_loss(q_z, outputs.q_z_pde, reduction="none").sum(-1).mean()
+            recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
+                target_raw, outputs.pred_x_pde, outputs.dropout_x_pde
+            )
 
-            irecon_loss = torch.tensor(0.0, device=self.device)
-            if self.irecon > 0:
-                irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
+        irecon_loss = torch.tensor(0.0, device=self.device)
+        if self.irecon > 0:
+            irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
 
         # Geometric (manifold) loss
         geometric_loss = torch.tensor(0.0, device=self.device)
@@ -379,7 +381,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
                     geometric_loss = self.lorentz * dist.mean()
 
         if torch.isnan(q_m).any() or torch.isnan(q_s).any():
-            warnings.warn("Skipping update: NaN detected in posterior parameters (q_m, q_s)", RuntimeWarning)
+            self._nan_escalate("NaN detected in posterior parameters (q_m, q_s)")
             return
 
         # KL divergence
@@ -400,10 +402,8 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss + adj_loss
 
         if torch.isnan(total_loss) or torch.isinf(total_loss):
-            warnings.warn(
-                f"Skipping update: total_loss is {'NaN' if torch.isnan(total_loss) else 'Inf'}",
-                RuntimeWarning,
-            )
+            status = "NaN" if torch.isnan(total_loss) else "Inf"
+            self._nan_escalate(f"total_loss is {status}")
             return
 
         self.nn_optimizer.zero_grad()
@@ -413,6 +413,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             torch.nn.utils.clip_grad_norm_(self.nn.parameters(), self.grad_clip)
 
         self.nn_optimizer.step()
+        self._nan_skip_count = 0  # Reset on successful step
 
         self.loss.append((
             total_loss.item(), recon_loss.item(), irecon_loss.item(),

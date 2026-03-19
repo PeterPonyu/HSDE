@@ -23,10 +23,13 @@ from .vectorfield import VectorFieldMixin
 from .environment import Env
 from anndata import AnnData
 from typing import Optional
+import logging
 import torch
 import tqdm
 import time
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class HSDE(Env, VectorFieldMixin):
@@ -293,6 +296,9 @@ class HSDE(Env, VectorFieldMixin):
                 f"Split sizes must sum to 1.0, got {train_size + val_size + test_size}"
             )
 
+        if train_size < 0 or val_size < 0 or test_size < 0:
+            raise ValueError("Split sizes must be non-negative")
+
         if use_sde and not (0.99 <= vae_reg + sde_reg <= 1.01):
             raise ValueError(
                 f"SDE weights must sum to 1.0, got {vae_reg + sde_reg}"
@@ -302,6 +308,20 @@ class HSDE(Env, VectorFieldMixin):
             raise ValueError(
                 f"Information bottleneck dimension ({i_dim}) must be < latent dimension ({latent_dim})"
             )
+
+        # Validate enum-like parameters
+        _VALID_LOSS = {"nb", "zinb", "poisson", "zip"}
+        _VALID_ENCODER = {"mlp", "transformer", "graph"}
+        if loss_type not in _VALID_LOSS:
+            raise ValueError(f"loss_type={loss_type!r} not in {_VALID_LOSS}")
+        if encoder_type not in _VALID_ENCODER:
+            raise ValueError(f"encoder_type={encoder_type!r} not in {_VALID_ENCODER}")
+
+        # Validate positive numeric parameters
+        for name, val in [("hidden_dim", hidden_dim), ("latent_dim", latent_dim),
+                          ("batch_size", batch_size), ("lr", lr), ("epochs", epochs)]:
+            if val <= 0:
+                raise ValueError(f"{name} must be positive, got {val}")
 
         # Initialize parent environment
         super().__init__(
@@ -455,8 +475,8 @@ class HSDE(Env, VectorFieldMixin):
 
                         if should_stop:
                             self.actual_epochs = epoch + 1
-                            print(f"\n\nEarly stopping at epoch {epoch + 1}")
-                            print(f"Best validation loss: {self.best_val_loss:.4f}")
+                            logger.info("Early stopping at epoch %d", epoch + 1)
+                            logger.info("Best validation loss: %.4f", self.best_val_loss)
                             self.load_best_model()
                             break
                     else:
@@ -556,7 +576,11 @@ class HSDE(Env, VectorFieldMixin):
         -------
         latent : ndarray of shape (n_test, latent_dim)
         """
-        return self.take_latent(self.X_test_norm)
+        return self.take_latent(
+            self.X_test_norm,
+            edge_index=self.edge_index,
+            edge_weight=self.edge_weight,
+        )
 
     def get_pde_latent(self):
         """
@@ -588,7 +612,7 @@ class HSDE(Env, VectorFieldMixin):
                 outputs = self.nn(x, edge_index=ei, edge_weight=ew)
             else:
                 outputs = self.nn(x)
-            le = outputs[4]  # Information bottleneck encoding
+            le = outputs.le  # Information bottleneck encoding
         return le.cpu().numpy()
 
     def get_resource_metrics(self):
@@ -606,24 +630,57 @@ class HSDE(Env, VectorFieldMixin):
             "actual_epochs": self.actual_epochs,
         }
 
+    def __repr__(self):
+        n_params = sum(p.numel() for p in self.nn.parameters())
+        parts = [
+            f"HSDE(encoder={self.encoder_type!r}",
+            f"latent_dim={self.nn.latent_dim}",
+            f"n_cells={self.n_obs}",
+            f"n_genes={self.n_var}",
+            f"params={n_params:,}",
+        ]
+        if self.encoder_type == "graph":
+            parts.append(f"graph={self.nn.encoder.conv_type}")
+        if self.nn.use_sde:
+            parts.append("sde=True")
+        if self.nn.use_pde:
+            parts.append("pde=True")
+        return ", ".join(parts) + ")"
+
+    def summary_dict(self):
+        """Return a dictionary of the model configuration.
+
+        Returns
+        -------
+        config : dict
+            Dictionary with model configuration keys.
+        """
+        n_params = sum(p.numel() for p in self.nn.parameters())
+        d = {
+            "encoder_type": self.encoder_type,
+            "parameters": n_params,
+            "latent_dim": self.nn.latent_dim,
+            "bottleneck_dim": self.nn.i_dim,
+            "input_dim": self.n_var,
+            "n_cells": self.n_obs,
+            "loss_type": self.loss_type,
+            "device": str(self.device),
+            "use_sde": self.nn.use_sde,
+            "use_pde": self.nn.use_pde,
+        }
+        if self.encoder_type == "graph":
+            d["graph_type"] = self.nn.encoder.conv_type
+            d["graph_decoder"] = self.nn.use_graph_decoder
+            d["n_edges"] = len(self.edge_weight) if self.edge_weight is not None else 0
+        return d
+
     def summary(self):
         """Print a summary of the model configuration."""
-        print("=" * 60)
-        print("HSDE Model Summary")
-        print("=" * 60)
-        print(f"  Encoder type:     {self.encoder_type}")
-        n_params = sum(p.numel() for p in self.nn.parameters())
-        print(f"  Parameters:       {n_params:,}")
-        print(f"  Latent dim:       {self.nn.latent_dim}")
-        print(f"  Bottleneck dim:   {self.nn.i_dim}")
-        print(f"  Input dim:        {self.n_var}")
-        print(f"  Cells:            {self.n_obs}")
-        print(f"  Loss type:        {self.loss_type}")
-        print(f"  Device:           {self.device}")
-        print(f"  Use SDE:          {self.nn.use_sde}")
-        print(f"  Use PDE:          {self.nn.use_pde}")
-        if self.encoder_type == "graph":
-            print(f"  Graph type:       {self.nn.encoder.conv_type}")
-            print(f"  Graph decoder:    {self.nn.use_graph_decoder}")
-            print(f"  Edges:            {len(self.edge_weight) if self.edge_weight is not None else 0}")
-        print("=" * 60)
+        d = self.summary_dict()
+        logger.info("=" * 60)
+        logger.info("HSDE Model Summary")
+        logger.info("=" * 60)
+        for key, val in d.items():
+            label = key.replace("_", " ").title()
+            logger.info("  %-18s %s", label, f"{val:,}" if isinstance(val, int) and key == "parameters" else val)
+        logger.info("=" * 60)

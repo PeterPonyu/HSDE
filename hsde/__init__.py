@@ -13,6 +13,10 @@ A unified deep learning framework for single-cell omics analysis combining:
 - Disentanglement: beta-VAE, DIP-VAE, TC-VAE, InfoVAE regularizers
 """
 
+import logging
+
+logging.getLogger("hsde").addHandler(logging.NullHandler())
+
 from .core.agent import HSDE
 
 __all__ = ["HSDE"]

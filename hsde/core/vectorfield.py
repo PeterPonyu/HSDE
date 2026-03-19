@@ -7,6 +7,7 @@ Adapted from HSDE vectorfield.py with graph encoder support:
 - All analysis and plotting methods preserved
 """
 
+import logging
 import numpy as np
 from anndata import AnnData
 from scipy.sparse import csr_matrix, issparse
@@ -14,6 +15,8 @@ from sklearn.neighbors import NearestNeighbors
 from scipy.stats import norm
 from typing import Optional, Tuple, Union
 import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
 
 
 def quiver_autoscale(E: np.ndarray, V: np.ndarray) -> float:
@@ -114,7 +117,7 @@ class VectorFieldMixin:
             if reverse:
                 adata.obsm[vf_key] *= -1
                 adata.obs[t_key] *= -1
-                print("[Auto-corrected] Reversed drift and time direction")
+                logger.info("[Auto-corrected] Reversed drift and time direction")
 
         # Build time-directed transition matrix
         adata.obsp[T_key] = self._get_similarity_time_directed(
@@ -195,14 +198,14 @@ class VectorFieldMixin:
         mag_ratio = late_mag / (early_mag + 1e-8)
 
         # Decision
-        print("[Auto-detect Direction]")
-        print(f"  Alignment (drift→future): {mean_alignment:.3f}")
-        print(f"  Magnitude ratio (late/early): {mag_ratio:.3f}")
+        logger.info("[Auto-detect Direction]")
+        logger.info("  Alignment (drift->future): %.3f", mean_alignment)
+        logger.info("  Magnitude ratio (late/early): %.3f", mag_ratio)
 
         reverse_alignment = mean_alignment < -0.15
         reverse_magnitude = mag_ratio < 0.65
         reverse = reverse_alignment or reverse_magnitude
-        print(f"  Decision: {'REVERSE' if reverse else 'OK'}")
+        logger.info("  Decision: %s", "REVERSE" if reverse else "OK")
 
         return reverse
 
@@ -460,9 +463,10 @@ class VectorFieldMixin:
         V = np.asarray(adata.obsm[vf_key])
         Z = np.asarray(adata.obsm[zs_key])
 
-        print("\n" + "=" * 70)
-        print("VECTOR FIELD DIAGNOSTIC")
-        print("=" * 70)
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("VECTOR FIELD DIAGNOSTIC")
+        logger.info("=" * 70)
 
         # Alignment
         alignments = []
@@ -484,9 +488,10 @@ class VectorFieldMixin:
             alignments.append(np.dot(drift, traj))
 
         align_mean = np.mean(alignments) if alignments else 0.0
-        print(f"\n[Drift-Trajectory Alignment]")
-        print(f"  Cosine: {align_mean:.3f}")
-        print(f"  Status: {'OK Forward' if align_mean > 0.3 else 'Misaligned'}")
+        logger.info("")
+        logger.info("[Drift-Trajectory Alignment]")
+        logger.info("  Cosine: %.3f", align_mean)
+        logger.info("  Status: %s", "OK Forward" if align_mean > 0.3 else "Misaligned")
 
         # Forward transitions
         forward_ratio = 0.0
@@ -500,18 +505,21 @@ class VectorFieldMixin:
             n_total = T.nnz if issparse(T) else (T != 0).sum()
             forward_ratio = n_forward / (n_total + 1e-8)
 
-            print(f"\n[Forward Transitions]")
-            print(f"  Ratio: {forward_ratio:.1%}")
-            print(f"  Status: {'Good' if forward_ratio > 0.85 else 'Weak'}")
+            logger.info("")
+            logger.info("[Forward Transitions]")
+            logger.info("  Ratio: %.1f%%", forward_ratio * 100)
+            logger.info("  Status: %s", "Good" if forward_ratio > 0.85 else "Weak")
 
         # Velocity magnitude
         V_mag = np.linalg.norm(V, axis=1)
         vel_mean = V_mag.mean()
-        print(f"\n[Velocity Magnitude]")
-        print(f"  Mean: {vel_mean:.3f}")
-        print(f"  Status: {'OK' if vel_mean > 0.1 else 'Weak'}")
+        logger.info("")
+        logger.info("[Velocity Magnitude]")
+        logger.info("  Mean: %.3f", vel_mean)
+        logger.info("  Status: %s", "OK" if vel_mean > 0.1 else "Weak")
 
-        print("=" * 70 + "\n")
+        logger.info("=" * 70)
+        logger.info("")
 
         return {
             "alignment": align_mean,

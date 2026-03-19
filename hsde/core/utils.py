@@ -9,10 +9,14 @@ Utility functions combining:
 - Euclidean distance baseline
 """
 
+import logging
+
 import numpy as np
 from scipy.sparse import issparse, csr_matrix
 from typing import Literal
 import torch
+
+logger = logging.getLogger(__name__)
 
 EPS = 1e-8
 MAX_NORM = 15.0
@@ -140,7 +144,7 @@ def tfidf_normalization(
     if not inplace:
         adata = adata.copy()
 
-    print(f"Applying TF-IDF normalization (scale={scale_factor:.0e})...")
+    logger.info(f"Applying TF-IDF normalization (scale={scale_factor:.0e})...")
 
     if issparse(adata.X):
         if adata.X.format != "csr":
@@ -183,7 +187,7 @@ def tfidf_normalization(
         "log_idf": log_idf,
     }
 
-    print(f"  TF-IDF complete. Value range: [{X.data.min():.2e}, {X.data.max():.2e}]")
+    logger.info(f"  TF-IDF complete. Value range: [{X.data.min():.2e}, {X.data.max():.2e}]")
     return adata if not inplace else None
 
 
@@ -274,5 +278,5 @@ def select_highly_variable_peaks(
     adata.var["highly_variable"] = False
     adata.var.loc[adata.var.index[top_idx], "highly_variable"] = True
 
-    print(f"Selected {n_top_peaks:,} highly variable peaks")
+    logger.info(f"Selected {n_top_peaks:,} highly variable peaks")
     return adata if not inplace else None
