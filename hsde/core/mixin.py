@@ -163,6 +163,9 @@ class envMixin:
         well the latent space preserves known biological cell types.
         """
         n_clusters = len(np.unique(labels))
+        if n_clusters <= 1:
+            logger.warning("Only %d unique label(s); returning NaN for cluster metrics", n_clusters)
+            return (np.nan, np.nan, np.nan, np.nan, np.nan, self._calc_corr(latent))
         pred = KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit_predict(latent)
         return (
             adjusted_rand_score(labels, pred),
@@ -187,6 +190,8 @@ class envMixin:
 
     @staticmethod
     def _calc_corr(latent):
+        if latent.shape[1] <= 1:
+            return 0.0
         corr = np.abs(np.corrcoef(latent.T))
         return corr.sum(axis=1).mean() - 1
 
@@ -222,6 +227,9 @@ class SDEMixin:
         device = z0.device
         t = t.detach().to(device)
         sde_func = sde_func.to(device)
+
+        if len(t) <= 1:
+            raise ValueError("SDE requires at least 2 unique timepoints, got %d" % len(t))
 
         if step_size is None or step_size == "auto":
             dt = (t[-1] - t[0]) / (len(t) - 1)
@@ -263,7 +271,8 @@ class scMixin:
                     sc.pp.highly_variable_genes(adata)
                 logger.info("Selecting highly variable genes.")
         except (ValueError, KeyError, AttributeError) as e:
-            logger.error(f"Error during preprocessing: {e}")
+            logger.error("Error during preprocessing: %s", e)
+            raise
 
     def _decomposition(self, adata: AnnData, tech: str, latent_dim: int) -> None:
         from sklearn.decomposition import PCA, NMF, FastICA, TruncatedSVD, FactorAnalysis
@@ -286,7 +295,8 @@ class scMixin:
             adata.obsm[f"X_{tech}"] = latent
             logger.info(f"Stored latent in adata.obsm['X_{tech}'].")
         except (ValueError, KeyError, TypeError) as e:
-            logger.error(f"Error during decomposition: {e}")
+            logger.error("Error during decomposition: %s", e)
+            raise
 
     def _batchcorrect(self, adata: AnnData, batch_tech: str, tech: str, layer: str) -> None:
         try:
@@ -309,4 +319,5 @@ class scMixin:
                 model.train()
                 adata.obsm["X_scvi"] = model.get_latent_representation()
         except (ValueError, ImportError, RuntimeError) as e:
-            logger.error(f"Error during batch correction: {e}")
+            logger.error("Error during batch correction: %s", e)
+            raise
