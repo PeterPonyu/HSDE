@@ -559,7 +559,11 @@ class HSDE(Env, VectorFieldMixin):
         -------
         latent : ndarray of shape (n_test, latent_dim)
         """
-        return self.take_latent(self.X_test_norm)
+        return self.take_latent(
+            self.X_test_norm,
+            edge_index=self.edge_index,
+            edge_weight=self.edge_weight,
+        )
 
     def get_pde_latent(self):
         """
@@ -609,24 +613,57 @@ class HSDE(Env, VectorFieldMixin):
             "actual_epochs": self.actual_epochs,
         }
 
+    def __repr__(self):
+        n_params = sum(p.numel() for p in self.nn.parameters())
+        parts = [
+            f"HSDE(encoder={self.encoder_type!r}",
+            f"latent_dim={self.nn.latent_dim}",
+            f"n_cells={self.n_obs}",
+            f"n_genes={self.n_var}",
+            f"params={n_params:,}",
+        ]
+        if self.encoder_type == "graph":
+            parts.append(f"graph={self.nn.encoder.conv_type}")
+        if self.nn.use_sde:
+            parts.append("sde=True")
+        if self.nn.use_pde:
+            parts.append("pde=True")
+        return ", ".join(parts) + ")"
+
+    def summary_dict(self):
+        """Return a dictionary of the model configuration.
+
+        Returns
+        -------
+        config : dict
+            Dictionary with model configuration keys.
+        """
+        n_params = sum(p.numel() for p in self.nn.parameters())
+        d = {
+            "encoder_type": self.encoder_type,
+            "parameters": n_params,
+            "latent_dim": self.nn.latent_dim,
+            "bottleneck_dim": self.nn.i_dim,
+            "input_dim": self.n_var,
+            "n_cells": self.n_obs,
+            "loss_type": self.loss_type,
+            "device": str(self.device),
+            "use_sde": self.nn.use_sde,
+            "use_pde": self.nn.use_pde,
+        }
+        if self.encoder_type == "graph":
+            d["graph_type"] = self.nn.encoder.conv_type
+            d["graph_decoder"] = self.nn.use_graph_decoder
+            d["n_edges"] = len(self.edge_weight) if self.edge_weight is not None else 0
+        return d
+
     def summary(self):
         """Print a summary of the model configuration."""
+        d = self.summary_dict()
         logger.info("=" * 60)
         logger.info("HSDE Model Summary")
         logger.info("=" * 60)
-        logger.info("  Encoder type:     %s", self.encoder_type)
-        n_params = sum(p.numel() for p in self.nn.parameters())
-        logger.info("  Parameters:       %s", f"{n_params:,}")
-        logger.info("  Latent dim:       %s", self.nn.latent_dim)
-        logger.info("  Bottleneck dim:   %s", self.nn.i_dim)
-        logger.info("  Input dim:        %s", self.n_var)
-        logger.info("  Cells:            %s", self.n_obs)
-        logger.info("  Loss type:        %s", self.loss_type)
-        logger.info("  Device:           %s", self.device)
-        logger.info("  Use SDE:          %s", self.nn.use_sde)
-        logger.info("  Use PDE:          %s", self.nn.use_pde)
-        if self.encoder_type == "graph":
-            logger.info("  Graph type:       %s", self.nn.encoder.conv_type)
-            logger.info("  Graph decoder:    %s", self.nn.use_graph_decoder)
-            logger.info("  Edges:            %s", len(self.edge_weight) if self.edge_weight is not None else 0)
+        for key, val in d.items():
+            label = key.replace("_", " ").title()
+            logger.info("  %-18s %s", label, f"{val:,}" if isinstance(val, int) and key == "parameters" else val)
         logger.info("=" * 60)
