@@ -217,10 +217,10 @@ class Env(HSDEModel, envMixin, scMixin):
             try:
                 self.labels = KMeans(n_clusters=latent_dim, n_init=10, random_state=self.random_seed).fit_predict(X_norm)
             except Exception:
-                self.labels = np.random.randint(0, latent_dim, size=self.n_obs)
+                self.labels = np.random.default_rng(self.random_seed).integers(0, latent_dim, size=self.n_obs)
 
-        np.random.seed(self.random_seed)
-        indices = np.random.permutation(self.n_obs)
+        rng = np.random.default_rng(self.random_seed)
+        indices = rng.permutation(self.n_obs)
         n_train = int(self.train_size * self.n_obs)
         n_val = int(self.val_size * self.n_obs)
 
@@ -304,8 +304,8 @@ class Env(HSDEModel, envMixin, scMixin):
         self.y = np.arange(self.n_obs)
         self.idx = np.arange(self.n_obs)
 
-        np.random.seed(self.random_seed)
-        indices = np.random.permutation(self.n_obs)
+        rng = np.random.default_rng(self.random_seed)
+        indices = rng.permutation(self.n_obs)
         n_train = int(self.train_size * self.n_obs)
         n_val = int(self.val_size * self.n_obs)
         self.train_idx = indices[:n_train]
