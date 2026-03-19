@@ -92,6 +92,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         self.use_graph_decoder = use_graph_decoder
         self.w_adj = w_adj
         self.graph_loss_weight = graph_loss_weight
+        self._nan_skip_count = 0
 
         self.nn = VAE(
             state_dim, hidden_dim, latent_dim, i_dim,
@@ -301,6 +302,25 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         return q_z_pde.cpu().numpy()
 
     # ========================================================================
+    # NaN escalation
+    # ========================================================================
+
+    _NAN_SKIP_LIMIT = 50
+
+    def _nan_escalate(self, reason: str):
+        """Track consecutive NaN skips and escalate if threshold is exceeded."""
+        self._nan_skip_count += 1
+        warnings.warn(
+            f"Skipping update ({self._nan_skip_count}/{self._NAN_SKIP_LIMIT}): {reason}",
+            RuntimeWarning,
+        )
+        if self._nan_skip_count >= self._NAN_SKIP_LIMIT:
+            raise RuntimeError(
+                f"Training diverged: {self._nan_skip_count} consecutive NaN/Inf updates. "
+                "Consider lowering learning rate or checking input data."
+            )
+
+    # ========================================================================
     # Training update step
     # ========================================================================
 
@@ -312,7 +332,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
 
         if torch.isnan(states_norm).any() or torch.isinf(states_norm).any():
-            warnings.warn("Skipping update: NaN or Inf detected in input states", RuntimeWarning)
+            self._nan_escalate("NaN or Inf detected in input states")
             return
 
         outputs = self.nn(states_norm, ei, ew)
@@ -361,7 +381,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
                     geometric_loss = self.lorentz * dist.mean()
 
         if torch.isnan(q_m).any() or torch.isnan(q_s).any():
-            warnings.warn("Skipping update: NaN detected in posterior parameters (q_m, q_s)", RuntimeWarning)
+            self._nan_escalate("NaN detected in posterior parameters (q_m, q_s)")
             return
 
         # KL divergence
@@ -382,10 +402,8 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss + adj_loss
 
         if torch.isnan(total_loss) or torch.isinf(total_loss):
-            warnings.warn(
-                f"Skipping update: total_loss is {'NaN' if torch.isnan(total_loss) else 'Inf'}",
-                RuntimeWarning,
-            )
+            status = "NaN" if torch.isnan(total_loss) else "Inf"
+            self._nan_escalate(f"total_loss is {status}")
             return
 
         self.nn_optimizer.zero_grad()
@@ -395,6 +413,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             torch.nn.utils.clip_grad_norm_(self.nn.parameters(), self.grad_clip)
 
         self.nn_optimizer.step()
+        self._nan_skip_count = 0  # Reset on successful step
 
         self.loss.append((
             total_loss.item(), recon_loss.item(), irecon_loss.item(),
