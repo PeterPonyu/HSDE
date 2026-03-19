@@ -296,6 +296,9 @@ class HSDE(Env, VectorFieldMixin):
                 f"Split sizes must sum to 1.0, got {train_size + val_size + test_size}"
             )
 
+        if train_size < 0 or val_size < 0 or test_size < 0:
+            raise ValueError("Split sizes must be non-negative")
+
         if use_sde and not (0.99 <= vae_reg + sde_reg <= 1.01):
             raise ValueError(
                 f"SDE weights must sum to 1.0, got {vae_reg + sde_reg}"
@@ -305,6 +308,20 @@ class HSDE(Env, VectorFieldMixin):
             raise ValueError(
                 f"Information bottleneck dimension ({i_dim}) must be < latent dimension ({latent_dim})"
             )
+
+        # Validate enum-like parameters
+        _VALID_LOSS = {"nb", "zinb", "poisson", "zip"}
+        _VALID_ENCODER = {"mlp", "transformer", "graph"}
+        if loss_type not in _VALID_LOSS:
+            raise ValueError(f"loss_type={loss_type!r} not in {_VALID_LOSS}")
+        if encoder_type not in _VALID_ENCODER:
+            raise ValueError(f"encoder_type={encoder_type!r} not in {_VALID_ENCODER}")
+
+        # Validate positive numeric parameters
+        for name, val in [("hidden_dim", hidden_dim), ("latent_dim", latent_dim),
+                          ("batch_size", batch_size), ("lr", lr), ("epochs", epochs)]:
+            if val <= 0:
+                raise ValueError(f"{name} must be positive, got {val}")
 
         # Initialize parent environment
         super().__init__(
