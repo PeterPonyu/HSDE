@@ -588,7 +588,7 @@ class HSDE(Env, VectorFieldMixin):
                 outputs = self.nn(x, edge_index=ei, edge_weight=ew)
             else:
                 outputs = self.nn(x)
-            le = outputs[4]  # Information bottleneck encoding
+            le = outputs.le  # Information bottleneck encoding
         return le.cpu().numpy()
 
     def get_resource_metrics(self):

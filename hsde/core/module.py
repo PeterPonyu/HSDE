@@ -22,11 +22,41 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 from typing import Optional, Tuple
+import dataclasses
 
 from .utils import exp_map_at_origin
 from .mixin import SDEMixin
 from .sde_functions import create_controlled_sde
 from .pde_functions import GraphDiffusionPDE
+
+
+@dataclasses.dataclass
+class ForwardOutput:
+    """Structured output from VAE.forward(), replacing fragile positional tuples."""
+    # Core VAE outputs (always present)
+    q_z: torch.Tensor
+    q_m: torch.Tensor
+    q_s: torch.Tensor
+    pred_x: torch.Tensor
+    le: torch.Tensor
+    ld: torch.Tensor
+    pred_xl: torch.Tensor
+    z_manifold: torch.Tensor
+    ld_manifold: torch.Tensor
+    dropout_x: torch.Tensor
+    dropout_xl: torch.Tensor
+    # Graph structure decoder (None when not using graph decoder)
+    pred_a: Optional[torch.Tensor] = None
+    # SDE-specific (None when not using SDE)
+    q_z_sde: Optional[torch.Tensor] = None
+    pred_x_sde: Optional[torch.Tensor] = None
+    dropout_x_sde: Optional[torch.Tensor] = None
+    x_sorted: Optional[torch.Tensor] = None
+    t: Optional[torch.Tensor] = None
+    # PDE-specific (None when not using PDE)
+    q_z_pde: Optional[torch.Tensor] = None
+    pred_x_pde: Optional[torch.Tensor] = None
+    dropout_x_pde: Optional[torch.Tensor] = None
 
 
 # ============================================================================
@@ -426,15 +456,17 @@ class VAE(nn.Module, SDEMixin):
         if self.use_pde:
             q_z_pde = self.pde_solver(q_z)
             pred_x_pde, dropout_x_pde = self._decode(q_z_pde, edge_index, edge_weight)
-            return (
-                q_z, q_m, q_s, pred_x, le, ld, pred_xl,
-                z_manifold, ld_manifold, dropout_x, dropout_xl,
-                q_z_pde, pred_x_pde, dropout_x_pde, pred_a,
+            return ForwardOutput(
+                q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
+                pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
+                dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+                q_z_pde=q_z_pde, pred_x_pde=pred_x_pde, dropout_x_pde=dropout_x_pde,
             )
 
-        return (
-            q_z, q_m, q_s, pred_x, le, ld, pred_xl,
-            z_manifold, ld_manifold, dropout_x, dropout_xl, pred_a,
+        return ForwardOutput(
+            q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
+            pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
+            dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
         )
 
     def _forward_sde(self, x, edge_index=None, edge_weight=None):
@@ -491,15 +523,19 @@ class VAE(nn.Module, SDEMixin):
         if self.use_pde:
             q_z_pde = self.pde_solver(q_z)
             pred_x_pde, dropout_x_pde = self._decode(q_z_pde, edge_index, edge_weight)
-            return (
-                q_z, q_m, q_s, pred_x, le, ld, pred_xl,
-                z_manifold, ld_manifold, dropout_x, dropout_xl,
-                q_z_sde, pred_x_sde, dropout_x_sde, x, t,
-                q_z_pde, pred_x_pde, dropout_x_pde, pred_a,
+            return ForwardOutput(
+                q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
+                pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
+                dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+                q_z_sde=q_z_sde, pred_x_sde=pred_x_sde, dropout_x_sde=dropout_x_sde,
+                x_sorted=x, t=t,
+                q_z_pde=q_z_pde, pred_x_pde=pred_x_pde, dropout_x_pde=dropout_x_pde,
             )
 
-        return (
-            q_z, q_m, q_s, pred_x, le, ld, pred_xl,
-            z_manifold, ld_manifold, dropout_x, dropout_xl,
-            q_z_sde, pred_x_sde, dropout_x_sde, x, t, pred_a,
+        return ForwardOutput(
+            q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
+            pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
+            dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+            q_z_sde=q_z_sde, pred_x_sde=pred_x_sde, dropout_x_sde=dropout_x_sde,
+            x_sorted=x, t=t,
         )

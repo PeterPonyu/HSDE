@@ -317,54 +317,36 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
 
         outputs = self.nn(states_norm, ei, ew)
 
-        # Unpack outputs based on mode
-        if self.use_sde:
-            if self.use_pde:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, q_z_sde, pred_x_sde, dropout_x_sde,
-                 x_sorted, t, q_z_pde, pred_x_pde, dropout_x_pde, pred_a) = outputs
-            else:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, q_z_sde, pred_x_sde, dropout_x_sde,
-                 x_sorted, t, pred_a) = outputs
+        # Access outputs via named attributes (ForwardOutput dataclass)
+        q_z, q_m, q_s = outputs.q_z, outputs.q_m, outputs.q_s
+        pred_x, dropout_x = outputs.pred_x, outputs.dropout_x
+        le, ld, pred_xl, dropout_xl = outputs.le, outputs.ld, outputs.pred_xl, outputs.dropout_xl
+        z_manifold, ld_manifold = outputs.z_manifold, outputs.ld_manifold
+        pred_a = outputs.pred_a
 
-            qz_div = F.mse_loss(q_z, q_z_sde, reduction="none").sum(-1).mean()
-            target_raw = x_sorted  # SDE reorders input
+        if self.use_sde:
+            qz_div = F.mse_loss(q_z, outputs.q_z_sde, reduction="none").sum(-1).mean()
+            target_raw = outputs.x_sorted  # SDE reorders input
 
             recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
-            recon_loss += self.recon * self._compute_reconstruction_loss(target_raw, pred_x_sde, dropout_x_sde)
-
-            if self.use_pde:
-                qz_div += self.pde_reg * F.mse_loss(q_z, q_z_pde, reduction="none").sum(-1).mean()
-                recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
-                    target_raw, pred_x_pde, dropout_x_pde
-                )
-
-            irecon_loss = torch.tensor(0.0, device=self.device)
-            if self.irecon > 0:
-                irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
+            recon_loss += self.recon * self._compute_reconstruction_loss(
+                target_raw, outputs.pred_x_sde, outputs.dropout_x_sde
+            )
         else:
-            if self.use_pde:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, q_z_pde, pred_x_pde, dropout_x_pde, pred_a) = outputs
-            else:
-                (q_z, q_m, q_s, pred_x, le, ld, pred_xl, z_manifold, ld_manifold,
-                 dropout_x, dropout_xl, pred_a) = outputs
-
             qz_div = torch.tensor(0.0, device=self.device)
             target_raw = states_raw
 
             recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
 
-            if self.use_pde:
-                qz_div += self.pde_reg * F.mse_loss(q_z, q_z_pde, reduction="none").sum(-1).mean()
-                recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
-                    target_raw, pred_x_pde, dropout_x_pde
-                )
+        if self.use_pde:
+            qz_div += self.pde_reg * F.mse_loss(q_z, outputs.q_z_pde, reduction="none").sum(-1).mean()
+            recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
+                target_raw, outputs.pred_x_pde, outputs.dropout_x_pde
+            )
 
-            irecon_loss = torch.tensor(0.0, device=self.device)
-            if self.irecon > 0:
-                irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
+        irecon_loss = torch.tensor(0.0, device=self.device)
+        if self.irecon > 0:
+            irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
 
         # Geometric (manifold) loss
         geometric_loss = torch.tensor(0.0, device=self.device)
