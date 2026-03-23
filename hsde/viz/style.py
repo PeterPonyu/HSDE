@@ -27,6 +27,12 @@ DPI = 300
 
 SAVEFIG_KW = dict(dpi=DPI)
 
+# Absolute-geometry layout rects [left, bottom, width, height]
+RECT_BOXPLOT_ROW = [0.05, 0.22, 0.93, 0.68]   # bottom margin for rotated x-labels
+RECT_HEATMAP = [0.16, 0.18, 0.68, 0.70]        # left margin for y-labels
+RECT_TITLE_Y = 0.95                              # figure title y-position
+GAP_BOXPLOT = 0.035                               # inter-panel gap
+
 # Heatmap styling
 HEATMAP_DARK_THRESHOLD = 0.45
 HEATMAP_CMAP = "YlOrRd"

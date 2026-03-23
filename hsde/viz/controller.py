@@ -367,9 +367,8 @@ class VisualizationController:
         if figsize is None:
             figsize = (3.2 * n_metrics, 3.8)
 
-        fig, axes = plt.subplots(1, n_metrics, figsize=figsize)
-        if n_metrics == 1:
-            axes = [axes]
+        fig = plt.figure(figsize=figsize)
+        axes = S.row_of_axes(fig, n_metrics, S.RECT_BOXPLOT_ROW, gap=S.GAP_BOXPLOT)
 
         for i, metric in enumerate(metrics):
             ax = axes[i]
@@ -425,8 +424,9 @@ class VisualizationController:
                 self._add_significance_brackets(ax, metric, methods_present,
                                                 sig_pairs, plot_data)
 
-        fig.suptitle(title, fontsize=S.FS_TITLE + 2, fontweight="bold", y=1.02)
-        plt.tight_layout()
+        fig.text(0.5, S.RECT_TITLE_Y, title,
+                 fontsize=S.FS_TITLE + 2, fontweight="bold",
+                 ha="center", va="bottom")
         return fig
 
     def _add_significance_brackets(self, ax, metric, methods, sig_pairs, data):
@@ -484,7 +484,9 @@ class VisualizationController:
                 if not vals.empty:
                     matrix[i, j] = vals.values[0]
 
-        fig, ax = plt.subplots(figsize=(len(proposed) * 1.5 + 2, len(methods) * 0.8 + 1.5))
+        figsize = (len(proposed) * 1.5 + 2, len(methods) * 0.8 + 1.5)
+        fig = plt.figure(figsize=figsize)
+        ax = S.place_axes(fig, S.RECT_HEATMAP)
 
         # Normalize per column for color mapping
         norm_matrix = np.copy(matrix)
@@ -529,10 +531,12 @@ class VisualizationController:
         ax.set_title("HSDE Benchmark Summary", fontsize=S.FS_TITLE + 1,
                       fontweight="bold", pad=10)
 
-        cbar = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+        cbar_rect = [S.RECT_HEATMAP[0] + S.RECT_HEATMAP[2] + 0.02,
+                     S.RECT_HEATMAP[1], 0.025, S.RECT_HEATMAP[3]]
+        cax = fig.add_axes(cbar_rect)
+        cbar = fig.colorbar(im, cax=cax)
         cbar.set_label("Normalized score", fontsize=S.FS_AXIS)
 
-        plt.tight_layout()
         return fig
 
     def _save_summary_table(self, path: Path):
