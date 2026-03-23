@@ -152,6 +152,9 @@ class VisualizationController:
 
             try:
                 df = pd.read_csv(fpath, index_col=0)
+                # Apply legacy name mapping for backward compatibility
+                df.index = [S.LEGACY_NAME_MAP.get(str(n), str(n))
+                            for n in df.index]
                 # Clean NaN with column medians
                 for col in df.columns:
                     if df[col].isna().any():

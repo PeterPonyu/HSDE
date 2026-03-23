@@ -63,7 +63,7 @@ VARIANTS = {
         recon=1.0, beta=1.0, dip=0.0, tc=0.0, info=10.0,
         encoder_type='mlp',
     ),
-    'HSDE (Full)': dict(
+    'HSDE': dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type='graph', graph_type='GAT',
         use_sde=True, use_pde=True,

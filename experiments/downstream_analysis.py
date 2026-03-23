@@ -97,23 +97,23 @@ LOCAL_DATASETS = {
 
 # Model variants
 VARIANTS = {
-    "VAE": dict(
+    "Base VAE": dict(
         recon=1.0, irecon=0.0, lorentz=0.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "IRecon-VAE": dict(
+    "VAE+IB": dict(
         recon=1.0, irecon=1.0, lorentz=0.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "Lorentz-VAE": dict(
+    "VAE+Hyp": dict(
         recon=1.0, irecon=0.0, lorentz=5.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "GM-VAE": dict(
+    "VAE+IB+Hyp": dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "HSDE (Full)": dict(
+    "HSDE": dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type="graph", graph_type="GAT",
         use_sde=True, use_pde=True,
@@ -353,9 +353,9 @@ def compute_component_effectiveness(all_results):
             if metric not in df.columns:
                 continue
 
-            base_val = df.loc["VAE", metric] if "VAE" in df.index else 0
+            base_val = df.loc["Base VAE", metric] if "Base VAE" in df.index else 0
 
-            for variant in ["IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE (Full)"]:
+            for variant in ["VAE+IB", "VAE+Hyp", "VAE+IB+Hyp", "HSDE"]:
                 if variant not in df.index:
                     continue
                 var_val = df.loc[variant, metric]
@@ -411,7 +411,7 @@ def generate_report(all_results, effectiveness_df, output_dir):
     report_lines.append("-" * 40)
 
     if not effectiveness_df.empty:
-        for variant in ["IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE (Full)"]:
+        for variant in ["VAE+IB", "VAE+Hyp", "VAE+IB+Hyp", "HSDE"]:
             vdf = effectiveness_df[effectiveness_df["variant"] == variant]
             if vdf.empty:
                 continue
@@ -427,8 +427,8 @@ def generate_report(all_results, effectiveness_df, output_dir):
     report_lines.append("-" * 40)
 
     from scipy.stats import wilcoxon
-    full_model = "HSDE (Full)"
-    for variant in ["VAE", "IRecon-VAE", "Lorentz-VAE", "GM-VAE"]:
+    full_model = "HSDE"
+    for variant in ["Base VAE", "VAE+IB", "VAE+Hyp", "VAE+IB+Hyp"]:
         for metric in ["ARI", "NMI"]:
             vals_a, vals_b = [], []
             for dataset, df in all_results.items():
@@ -568,7 +568,7 @@ def main():
         ctrl.load_all()
         fig_results = ctrl.generate_all_figures(
             output_dir=FIGURES_DIR,
-            sig_pairs=[(m, "HSDE (Full)") for m in method_names[:-1]],
+            sig_pairs=[(m, "HSDE") for m in method_names[:-1]],
         )
         print(f"\n  Generated {len(fig_results)} figure outputs")
     except Exception as e:

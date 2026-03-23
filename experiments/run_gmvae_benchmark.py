@@ -164,9 +164,13 @@ def main():
     datasets = discover_datasets()
     done = get_done_datasets(TABLES_DIR, PREFIX)
 
-    method_names = ([f"GM-VAE ({d.replace('_', '-')})"
+    _DIST_DISPLAY = {
+        'euclidean': 'Eucl.', 'poincare': 'Poinc.', 'pgm': 'PGM',
+        'learnable_pgm': 'L-PGM', 'hw': 'HW',
+    }
+    method_names = ([f"GM-VAE ({_DIST_DISPLAY[d]})"
                      for d in GMVAE_DISTRIBUTIONS] +
-                    ['HSDE (Full)'])
+                    ['HSDE'])
 
     print(f"\n{'='*70}")
     print(f"GM-VAE GEOMETRIC DISTRIBUTION BENCHMARK")

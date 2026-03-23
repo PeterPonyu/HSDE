@@ -40,23 +40,23 @@ os.makedirs(TABLES_DIR, exist_ok=True)
 
 # Variants in logical architecture order (base -> additive -> full)
 VARIANTS = {
-    'VAE': dict(
+    'Base VAE': dict(
         recon=1.0, irecon=0.0, lorentz=0.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'IRecon-VAE': dict(
+    'VAE+IB': dict(
         recon=1.0, irecon=1.0, lorentz=0.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'Lorentz-VAE': dict(
+    'VAE+Hyp': dict(
         recon=1.0, irecon=0.0, lorentz=5.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'GM-VAE': dict(
+    'VAE+IB+Hyp': dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'HSDE (Full)': dict(
+    'HSDE': dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type='graph', graph_type='GAT',
         use_sde=True, use_pde=True,
