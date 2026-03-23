@@ -13,7 +13,7 @@ Variants (6) in order: base -> regularizers -> full:
   3. DIP-VAE   — covariance regularization (dip=10)
   4. TC-VAE    — total correlation penalty (tc=10)
   5. InfoVAE   — MMD regularization (info=10)
-  6. HSDE (Full) — graph + IRecon + Lorentz + SDE + PDE
+  6. HSDE — graph + IB + Hyp + SDE + PDE
 
 Each variant: 200 epochs x 12 datasets.
 """
