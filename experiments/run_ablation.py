@@ -81,7 +81,7 @@ def run_single(adata1, variant_name, params, dataset_name):
         model.fit(epochs=EPOCHS, patience=30, early_stop=True,
                   compute_metrics=False)
         latent = model.get_latent()
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         metrics = evaluate_latent(latent, labels)
 
         res = model.get_resource_metrics()

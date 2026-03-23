@@ -193,7 +193,7 @@ def main():
             traceback.print_exc()
             continue
 
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         X_dense = get_dense_X(adata1)
 
         all_metrics = []

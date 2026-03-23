@@ -26,6 +26,7 @@ import sys
 import os
 import gc
 import json
+import logging
 import traceback
 import time
 from pathlib import Path
@@ -126,20 +127,26 @@ VARIANTS = {
 # Data loading (matching exp_utils.py pipeline)
 # ---------------------------------------------------------------------------
 
-def get_labels(adata):
-    """Extract cell type labels from adata.obs."""
-    for col in ["cell_type", "celltype", "CellType", "cell_types",
-                "cluster", "clusters", "louvain", "leiden",
-                "annotation", "label", "labels", "Group", "group"]:
-        if col in adata.obs.columns:
-            labels = adata.obs[col].values
-            if hasattr(labels, "cat"):
-                labels = labels.astype(str)
-            return labels
-    print("  No labels found, computing leiden clusters...")
-    sc.pp.neighbors(adata, use_rep="X_pca" if "X_pca" in adata.obsm else None)
-    sc.tl.leiden(adata, resolution=1.0)
-    return adata.obs["leiden"].values
+logger = logging.getLogger(__name__)
+
+
+def get_labels(adata, resolution=1.0):
+    """Compute unsupervised reference labels via Leiden clustering.
+
+    All benchmarking uses Leiden on preprocessed data as the reference
+    partition.  Ground-truth cell type annotations are never used,
+    ensuring fully unsupervised evaluation.
+    """
+    leiden_key = f'leiden_{resolution}'
+    if leiden_key not in adata.obs.columns:
+        if 'neighbors' not in adata.uns:
+            use_rep = 'X_pca' if 'X_pca' in adata.obsm else None
+            sc.pp.neighbors(adata, use_rep=use_rep)
+        sc.tl.leiden(adata, resolution=resolution, key_added=leiden_key)
+    labels = adata.obs[leiden_key].values.astype(str)
+    n_clusters = len(np.unique(labels))
+    logger.info("  Leiden (res=%.1f): %d clusters", resolution, n_clusters)
+    return labels, n_clusters
 
 
 def load_and_preprocess(filepath):
@@ -307,7 +314,7 @@ def train_variant(adata1, variant_name, params, dataset_name):
                   compute_metrics=False)
 
         latent = model.get_latent()
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         metrics = compute_all_metrics(latent, labels)
 
         res = model.get_resource_metrics()

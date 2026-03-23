@@ -14,10 +14,12 @@ The resulting adata1 is used by ALL models:
   - Labels:          get_labels(adata1)
 """
 
-import sys, os, glob
+import sys, os, glob, logging
 import numpy as np
 import pandas as pd
 import scanpy as sc
+
+logger = logging.getLogger(__name__)
 import scipy.sparse as sp
 
 # Add project root
@@ -96,21 +98,37 @@ def discover_datasets():
     return selected
 
 
-def get_labels(adata):
-    """Extract cell type labels from adata.obs."""
-    for col in ['cell_type', 'celltype', 'CellType', 'cell_types',
-                'cluster', 'clusters', 'louvain', 'leiden',
-                'annotation', 'label', 'labels', 'Group', 'group']:
-        if col in adata.obs.columns:
-            labels = adata.obs[col].values
-            if hasattr(labels, 'cat'):
-                labels = labels.astype(str)
-            return labels
-    # Fallback: compute leiden clustering
-    print("  No labels found, computing leiden clusters...")
-    sc.pp.neighbors(adata, use_rep='X_pca' if 'X_pca' in adata.obsm else None)
-    sc.tl.leiden(adata, resolution=1.0)
-    return adata.obs['leiden'].values
+def get_labels(adata, resolution=1.0):
+    """Compute unsupervised reference labels via Leiden clustering.
+
+    All benchmarking uses Leiden on preprocessed data as the reference
+    partition.  Ground-truth cell type annotations are never used,
+    ensuring fully unsupervised evaluation.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Preprocessed data (normalized, log-transformed, HVG-selected).
+    resolution : float
+        Leiden resolution parameter.  Default 1.0.
+
+    Returns
+    -------
+    labels : ndarray of str
+        Leiden cluster assignments.
+    n_clusters : int
+        Number of Leiden clusters found.
+    """
+    leiden_key = f'leiden_{resolution}'
+    if leiden_key not in adata.obs.columns:
+        if 'neighbors' not in adata.uns:
+            use_rep = 'X_pca' if 'X_pca' in adata.obsm else None
+            sc.pp.neighbors(adata, use_rep=use_rep)
+        sc.tl.leiden(adata, resolution=resolution, key_added=leiden_key)
+    labels = adata.obs[leiden_key].values.astype(str)
+    n_clusters = len(np.unique(labels))
+    logger.info("  Leiden (res=%.1f): %d clusters", resolution, n_clusters)
+    return labels, n_clusters
 
 
 def load_and_preprocess(filepath):
