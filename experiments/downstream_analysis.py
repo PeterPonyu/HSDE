@@ -26,6 +26,7 @@ import sys
 import os
 import gc
 import json
+import logging
 import traceback
 import time
 from pathlib import Path
@@ -96,23 +97,23 @@ LOCAL_DATASETS = {
 
 # Model variants
 VARIANTS = {
-    "VAE": dict(
+    "Base VAE": dict(
         recon=1.0, irecon=0.0, lorentz=0.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "IRecon-VAE": dict(
+    "VAE+IB": dict(
         recon=1.0, irecon=1.0, lorentz=0.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "Lorentz-VAE": dict(
+    "VAE+Hyp": dict(
         recon=1.0, irecon=0.0, lorentz=5.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "GM-VAE": dict(
+    "VAE+IB+Hyp": dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type="mlp",
     ),
-    "HSDE (Full)": dict(
+    "HSDE": dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type="graph", graph_type="GAT",
         use_sde=True, use_pde=True,
@@ -126,20 +127,26 @@ VARIANTS = {
 # Data loading (matching exp_utils.py pipeline)
 # ---------------------------------------------------------------------------
 
-def get_labels(adata):
-    """Extract cell type labels from adata.obs."""
-    for col in ["cell_type", "celltype", "CellType", "cell_types",
-                "cluster", "clusters", "louvain", "leiden",
-                "annotation", "label", "labels", "Group", "group"]:
-        if col in adata.obs.columns:
-            labels = adata.obs[col].values
-            if hasattr(labels, "cat"):
-                labels = labels.astype(str)
-            return labels
-    print("  No labels found, computing leiden clusters...")
-    sc.pp.neighbors(adata, use_rep="X_pca" if "X_pca" in adata.obsm else None)
-    sc.tl.leiden(adata, resolution=1.0)
-    return adata.obs["leiden"].values
+logger = logging.getLogger(__name__)
+
+
+def get_labels(adata, resolution=1.0):
+    """Compute unsupervised reference labels via Leiden clustering.
+
+    All benchmarking uses Leiden on preprocessed data as the reference
+    partition.  Ground-truth cell type annotations are never used,
+    ensuring fully unsupervised evaluation.
+    """
+    leiden_key = f'leiden_{resolution}'
+    if leiden_key not in adata.obs.columns:
+        if 'neighbors' not in adata.uns:
+            use_rep = 'X_pca' if 'X_pca' in adata.obsm else None
+            sc.pp.neighbors(adata, use_rep=use_rep)
+        sc.tl.leiden(adata, resolution=resolution, key_added=leiden_key)
+    labels = adata.obs[leiden_key].values.astype(str)
+    n_clusters = len(np.unique(labels))
+    logger.info("  Leiden (res=%.1f): %d clusters", resolution, n_clusters)
+    return labels, n_clusters
 
 
 def load_and_preprocess(filepath):
@@ -307,7 +314,7 @@ def train_variant(adata1, variant_name, params, dataset_name):
                   compute_metrics=False)
 
         latent = model.get_latent()
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         metrics = compute_all_metrics(latent, labels)
 
         res = model.get_resource_metrics()
@@ -346,9 +353,9 @@ def compute_component_effectiveness(all_results):
             if metric not in df.columns:
                 continue
 
-            base_val = df.loc["VAE", metric] if "VAE" in df.index else 0
+            base_val = df.loc["Base VAE", metric] if "Base VAE" in df.index else 0
 
-            for variant in ["IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE (Full)"]:
+            for variant in ["VAE+IB", "VAE+Hyp", "VAE+IB+Hyp", "HSDE"]:
                 if variant not in df.index:
                     continue
                 var_val = df.loc[variant, metric]
@@ -404,7 +411,7 @@ def generate_report(all_results, effectiveness_df, output_dir):
     report_lines.append("-" * 40)
 
     if not effectiveness_df.empty:
-        for variant in ["IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE (Full)"]:
+        for variant in ["VAE+IB", "VAE+Hyp", "VAE+IB+Hyp", "HSDE"]:
             vdf = effectiveness_df[effectiveness_df["variant"] == variant]
             if vdf.empty:
                 continue
@@ -420,8 +427,8 @@ def generate_report(all_results, effectiveness_df, output_dir):
     report_lines.append("-" * 40)
 
     from scipy.stats import wilcoxon
-    full_model = "HSDE (Full)"
-    for variant in ["VAE", "IRecon-VAE", "Lorentz-VAE", "GM-VAE"]:
+    full_model = "HSDE"
+    for variant in ["Base VAE", "VAE+IB", "VAE+Hyp", "VAE+IB+Hyp"]:
         for metric in ["ARI", "NMI"]:
             vals_a, vals_b = [], []
             for dataset, df in all_results.items():
@@ -561,7 +568,7 @@ def main():
         ctrl.load_all()
         fig_results = ctrl.generate_all_figures(
             output_dir=FIGURES_DIR,
-            sig_pairs=[(m, "HSDE (Full)") for m in method_names[:-1]],
+            sig_pairs=[(m, "HSDE") for m in method_names[:-1]],
         )
         print(f"\n  Generated {len(fig_results)} figure outputs")
     except Exception as e:

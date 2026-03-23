@@ -1,13 +1,26 @@
-# HSDE-Graph — Ablation & Component Efficiency Study Report (v2)
+# HSDE-Graph — Ablation & Component Efficiency Study Report (v3)
 
-> **Dataset**: Setty Bone Marrow hematopoiesis — 3 000 cells, 2 000 HVGs  
-> **Training**: ≤ 100 epochs, early stopping (patience 20), NB loss, seed 42  
-> **Hardware**: CUDA GPU  
+> **Dataset**: Setty Bone Marrow hematopoiesis — 3 000 cells, 2 000 HVGs
+> **Training**: ≤ 100 epochs, early stopping (patience 20), NB loss, seed 42
+> **Hardware**: CUDA GPU
 > **Total runtime**: ~248 s (16 configurations)
 
 ---
 
-## 0  Changes from v1 → v2
+## 0  Changes from v2 → v3
+
+| Issue | v2 | v3 (corrected) |
+|-------|-----|----------------|
+| **Label source** | Ground-truth cell-type annotations from `adata.obs['cell_type']` | **Leiden clustering** (resolution 1.0) on preprocessed data — fully unsupervised |
+| **ASW / CH / DB in `mixin.py`** | Computed on ground-truth labels (external validity) | Computed on **KMeans predictions** (internal validity), consistent with `metrics_expanded.py` |
+| **Model naming** | Generic names (VAE, IRecon-VAE, Lorentz-VAE, GM-VAE) | HSDE-themed (Base VAE, VAE+IB, VAE+Hyp, VAE+IB+Hyp, HSDE) |
+| **Figure layout** | `plt.tight_layout()` (unreliable) | Absolute geometry via `row_of_axes()` / `place_axes()` |
+| **Dead code** | `_calc_score()`, `_calc_label()`, `_metrics()` in mixin.py | Removed (CCVGAE leftovers) |
+| **Graph KMeans bug** | Unseeded `KMeans(n_clusters=latent_dim, n_init=10)` in graph path | Replaced with seeded Leiden clustering |
+
+**Impact**: All ARI/NMI values will change because the reference partition now comes from Leiden clustering rather than pre-annotated cell types.  ASW/CH/DB in training validation now use KMeans predictions (internal validity), matching the experiment evaluation pipeline.
+
+### Previous changes (v1 → v2)
 
 | Issue | v1 (incorrect) | v2 (corrected) |
 |-------|---------------|----------------|
@@ -16,8 +29,6 @@
 | **Part 1 fairness** | MLP had `irecon=0.5, lorentz=5.0`; Graph had `irecon=0, lorentz=0` | All encoders use **identical** minimal loss: recon + β=0.1 KL only |
 | **`take_latent`** | Missing `@torch.no_grad()` — gradients computed during evaluation | Added `@torch.no_grad()` decorator |
 | **Config naming** | Ambiguous (e.g. "2.2 + KL (β=0.01)" implied adding KL) | Clarified (e.g. "2.2 + Low β (β=0.01)" — reducing posterior pressure) |
-
-**Impact**: ASW values dropped because ground-truth cell types are harder to separate than KMeans-optimised clusters. Part 1 MLP ARI dropped from 0.51 → 0.43 (losing its unfair IB/Lorentz boost), making the GAT advantage clearer.
 
 ---
 
@@ -73,19 +84,21 @@
 
 ## 2  Metrics
 
-All clustering metrics use **ground-truth cell-type labels** (external validity).
+All clustering metrics use **unsupervised Leiden clustering** (resolution 1.0) on
+preprocessed data as the reference partition.  No ground-truth cell type annotations
+are used at any stage of evaluation.
 
-| Metric | Type | Range | Better |
-|--------|------|-------|--------|
-| **ARI** | Clustering — Adjusted Rand Index | [−1, 1] | Higher |
-| **NMI** | Clustering — Normalised Mutual Information | [0, 1] | Higher |
-| **ASW** | Clustering — Average Silhouette Width (gt labels) | [−1, 1] | Higher |
-| **CH** | Clustering — Calinski-Harabasz Index (gt labels) | [0, ∞) | Higher |
-| **DB** | Clustering — Davies-Bouldin Index (gt labels) | [0, ∞) | **Lower** |
-| **LSE** | Latent Structure — mean(manifold\_dim, spectral\_decay, noise\_resil) | [0, 1] | Higher |
-| **DRE UMAP** | Dimensionality Reduction — mean(distcorr, Q\_local, Q\_global) on UMAP | [0, 1] | Higher |
-| **DRE tSNE** | Dimensionality Reduction — same on t-SNE | [0, 1] | Higher |
-| **ARI/s** | Efficiency — ARI per second of training | [0, ∞) | Higher |
+| Metric | Type | Evaluation Mode | Range | Better |
+|--------|------|-----------------|-------|--------|
+| **ARI** | Clustering — Adjusted Rand Index | KMeans vs Leiden ref | [−1, 1] | Higher |
+| **NMI** | Clustering — Normalised Mutual Information | KMeans vs Leiden ref | [0, 1] | Higher |
+| **ASW** | Clustering — Average Silhouette Width | Internal (KMeans pred) | [−1, 1] | Higher |
+| **CH** | Clustering — Calinski-Harabasz Index | Internal (KMeans pred) | [0, ∞) | Higher |
+| **DB** | Clustering — Davies-Bouldin Index | Internal (KMeans pred) | [0, ∞) | **Lower** |
+| **LSE** | Latent Structure — mean(manifold\_dim, spectral\_decay, noise\_resil) | Unsupervised | [0, 1] | Higher |
+| **DRE UMAP** | Dimensionality Reduction — mean(distcorr, Q\_local, Q\_global) on UMAP | Unsupervised | [0, 1] | Higher |
+| **DRE tSNE** | Dimensionality Reduction — same on t-SNE | Unsupervised | [0, 1] | Higher |
+| **ARI/s** | Efficiency — ARI per second of training | Derived | [0, ∞) | Higher |
 
 ---
 

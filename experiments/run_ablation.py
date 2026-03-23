@@ -6,11 +6,11 @@ Additive ablation of HSDE core architecture components.
 Full model = Graph GAT + IRecon + Lorentz + SDE + PDE.
 
 Variants (5) in logical architecture order:
-  1. VAE           — MLP base VAE
-  2. IRecon-VAE    — + information bottleneck
-  3. Lorentz-VAE   — + Lorentz hyperbolic geometry
-  4. GM-VAE        — + both IRecon + Lorentz
-  5. HSDE (Full)   — Graph GAT + IRecon + Lorentz + SDE + PDE
+  1. Base VAE    — MLP base VAE
+  2. VAE+IB      — + information bottleneck
+  3. VAE+Hyp     — + hyperbolic geometry
+  4. VAE+IB+Hyp  — + both IB + hyperbolic
+  5. HSDE        — Graph GAT + IB + Hyp + SDE + PDE
 
 Preprocessing: normalize, log1p, 2000 HVGs, subsample 3000 cells.
 Each variant: 200 epochs x 12 datasets.
@@ -40,23 +40,23 @@ os.makedirs(TABLES_DIR, exist_ok=True)
 
 # Variants in logical architecture order (base -> additive -> full)
 VARIANTS = {
-    'VAE': dict(
+    'Base VAE': dict(
         recon=1.0, irecon=0.0, lorentz=0.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'IRecon-VAE': dict(
+    'VAE+IB': dict(
         recon=1.0, irecon=1.0, lorentz=0.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'Lorentz-VAE': dict(
+    'VAE+Hyp': dict(
         recon=1.0, irecon=0.0, lorentz=5.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'GM-VAE': dict(
+    'VAE+IB+Hyp': dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type='mlp',
     ),
-    'HSDE (Full)': dict(
+    'HSDE': dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type='graph', graph_type='GAT',
         use_sde=True, use_pde=True,
@@ -81,7 +81,7 @@ def run_single(adata1, variant_name, params, dataset_name):
         model.fit(epochs=EPOCHS, patience=30, early_stop=True,
                   compute_metrics=False)
         latent = model.get_latent()
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         metrics = evaluate_latent(latent, labels)
 
         res = model.get_resource_metrics()

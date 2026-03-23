@@ -13,7 +13,7 @@ Variants (6) in order: external baselines -> proposed model:
   3. GM-VAE (PGM)            — Product Gaussian Manifold
   4. GM-VAE (LearnablePGM)   — PGM with learnable curvature
   5. GM-VAE (HW)             — Hyperboloid Wrapped Normal (Lorentz)
-  6. HSDE (Full)             — Full HSDE (Graph GAT + all components)
+  6. HSDE                   — Full HSDE (Graph GAT + all components)
 
 Each variant: 200 epochs x 12 datasets.
 """
@@ -126,7 +126,7 @@ def run_gmvae_variant(X_dense, distribution, dataset_name):
 
 def run_hsde_full(adata1, dataset_name):
     """Train the full HSDE model on preprocessed adata1."""
-    print(f"  Training HSDE (Full)...")
+    print(f"  Training HSDE...")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     try:
@@ -141,14 +141,14 @@ def run_hsde_full(adata1, dataset_name):
         latent = model.get_latent()
         res = model.get_resource_metrics()
 
-        print(f"    ✓ HSDE (Full): time={res['train_time']:.1f}s")
+        print(f"    ✓ HSDE: time={res['train_time']:.1f}s")
 
         del model
         torch.cuda.empty_cache()
         return latent, res['train_time'], res['peak_memory_gb']
 
     except Exception as e:
-        print(f"    ✗ HSDE (Full) FAILED: {e}")
+        print(f"    ✗ HSDE FAILED: {e}")
         traceback.print_exc()
         torch.cuda.empty_cache()
         return None, 0, 0
@@ -164,9 +164,13 @@ def main():
     datasets = discover_datasets()
     done = get_done_datasets(TABLES_DIR, PREFIX)
 
-    method_names = ([f"GM-VAE ({d.replace('_', '-')})"
+    _DIST_DISPLAY = {
+        'euclidean': 'Eucl.', 'poincare': 'Poinc.', 'pgm': 'PGM',
+        'learnable_pgm': 'L-PGM', 'hw': 'HW',
+    }
+    method_names = ([f"GM-VAE ({_DIST_DISPLAY[d]})"
                      for d in GMVAE_DISTRIBUTIONS] +
-                    ['HSDE (Full)'])
+                    ['HSDE'])
 
     print(f"\n{'='*70}")
     print(f"GM-VAE GEOMETRIC DISTRIBUTION BENCHMARK")
@@ -193,7 +197,7 @@ def main():
             traceback.print_exc()
             continue
 
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         X_dense = get_dense_X(adata1)
 
         all_metrics = []

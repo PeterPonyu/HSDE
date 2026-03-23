@@ -156,37 +156,26 @@ class envMixin:
     """Clustering metrics for latent space evaluation."""
 
     def _calc_score_with_labels(self, latent, labels):
-        """Compute clustering metrics using ground truth labels.
+        """Compute clustering metrics with unsupervised reference labels.
 
-        ARI and NMI compare KMeans-predicted clusters against ground truth.
-        ASW, CH, and DB are computed on ground truth labels to measure how
-        well the latent space preserves known biological cell types.
+        ARI/NMI: KMeans predictions vs reference labels.
+        ASW/CH/DB: internal validity using KMeans predictions only,
+        consistent with the external metrics_expanded.py pipeline.
         """
         n_clusters = len(np.unique(labels))
         if n_clusters <= 1:
             logger.warning("Only %d unique label(s); returning NaN for cluster metrics", n_clusters)
             return (np.nan, np.nan, np.nan, np.nan, np.nan, self._calc_corr(latent))
         pred = KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit_predict(latent)
+        n_pred = len(np.unique(pred))
         return (
             adjusted_rand_score(labels, pred),
             normalized_mutual_info_score(labels, pred),
-            silhouette_score(latent, labels),
-            calinski_harabasz_score(latent, labels),
-            davies_bouldin_score(latent, labels),
+            silhouette_score(latent, pred) if n_pred > 1 else np.nan,
+            calinski_harabasz_score(latent, pred) if n_pred > 1 else np.nan,
+            davies_bouldin_score(latent, pred) if n_pred > 1 else np.nan,
             self._calc_corr(latent),
         )
-
-    def _calc_score(self, latent):
-        """Score using self.labels (CCVGAE-style interface)."""
-        labels = self._calc_label(latent)
-        return self._metrics(latent, labels)
-
-    def _calc_label(self, latent):
-        if not hasattr(self, "labels") or self.labels is None:
-            n_clusters = latent.shape[1]
-        else:
-            n_clusters = len(np.unique(self.labels))
-        return KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit_predict(latent)
 
     @staticmethod
     def _calc_corr(latent):
@@ -194,16 +183,6 @@ class envMixin:
             return 0.0
         corr = np.abs(np.corrcoef(latent.T))
         return corr.sum(axis=1).mean() - 1
-
-    def _metrics(self, latent, pred_labels):
-        """Compute metrics: ARI/NMI vs ground truth, ASW/CH/DB on ground truth."""
-        ARI = adjusted_rand_score(self.labels, pred_labels)
-        NMI = normalized_mutual_info_score(self.labels, pred_labels)
-        ASW = silhouette_score(latent, self.labels)
-        CH = calinski_harabasz_score(latent, self.labels)
-        DB = davies_bouldin_score(latent, self.labels)
-        PC = self._calc_corr(latent)
-        return ARI, NMI, ASW, CH, DB, PC
 
 
 # ============================================================================

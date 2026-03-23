@@ -27,6 +27,12 @@ DPI = 300
 
 SAVEFIG_KW = dict(dpi=DPI)
 
+# Absolute-geometry layout rects [left, bottom, width, height]
+RECT_BOXPLOT_ROW = [0.05, 0.22, 0.93, 0.68]   # bottom margin for rotated x-labels
+RECT_HEATMAP = [0.16, 0.18, 0.68, 0.70]        # left margin for y-labels
+RECT_TITLE_Y = 0.95                              # figure title y-position
+GAP_BOXPLOT = 0.035                               # inter-panel gap
+
 # Heatmap styling
 HEATMAP_DARK_THRESHOLD = 0.45
 HEATMAP_CMAP = "YlOrRd"
@@ -50,42 +56,59 @@ FS_SMALL = 8
 # HSDE model configurations: canonical order and display names
 # ---------------------------------------------------------------------------
 _CONFIG_ORDER: List[str] = [
-    "VAE",
-    "IRecon-VAE",
-    "Lorentz-VAE",
-    "GM-VAE",
-    "HSDE (Full)",
+    "Base VAE",
+    "VAE+IB",
+    "VAE+Hyp",
+    "VAE+IB+Hyp",
+    "HSDE",
 ]
 
 _PALETTE: List[str] = [
-    "#0072B2",  # VAE           — blue (Wong)
-    "#E69F00",  # IRecon-VAE    — orange (Wong)
-    "#009E73",  # Lorentz-VAE   — bluish green (Wong)
-    "#CC79A7",  # GM-VAE        — reddish purple (Wong)
-    "#D55E00",  # HSDE (Full)   — vermilion (Wong)
+    "#0072B2",  # Base VAE     — blue (Wong)
+    "#E69F00",  # VAE+IB       — orange (Wong)
+    "#009E73",  # VAE+Hyp      — bluish green (Wong)
+    "#CC79A7",  # VAE+IB+Hyp   — reddish purple (Wong)
+    "#D55E00",  # HSDE          — vermilion (Wong)
 ]
 
 _CONFIG_COLORS: Dict[str, str] = OrderedDict(
     zip(_CONFIG_ORDER, _PALETTE)
 )
 
-# Display name mapping
+# Display name mapping (includes legacy aliases for old CSV files)
 _DISPLAY_NAMES: Dict[str, str] = {
-    "VAE": "VAE",
-    "IRecon-VAE": "IRecon-VAE",
-    "Lorentz-VAE": "Lorentz-VAE",
-    "GM-VAE": "GM-VAE",
-    "HSDE (Full)": "HSDE",
+    "Base VAE": "Base VAE",
+    "VAE+IB": "VAE+IB",
+    "VAE+Hyp": "VAE+Hyp",
+    "VAE+IB+Hyp": "VAE+IB+Hyp",
     "HSDE": "HSDE",
+    # Legacy aliases (old CSV files)
+    "VAE": "Base VAE",
+    "IRecon-VAE": "VAE+IB",
+    "Lorentz-VAE": "VAE+Hyp",
+    "GM-VAE": "VAE+IB+Hyp",
+    "HSDE (Full)": "HSDE",
 }
 
 # Short names for tight x-tick labels
 _SHORT_NAMES: Dict[str, str] = {
-    "VAE": "VAE",
-    "IRecon-VAE": "IR",
-    "Lorentz-VAE": "Lor",
-    "GM-VAE": "GM",
+    "Base VAE": "Base",
+    "VAE+IB": "+IB",
+    "VAE+Hyp": "+Hyp",
+    "VAE+IB+Hyp": "+IB+Hyp",
+    "HSDE": "HSDE",
+}
+
+# Legacy name mapping for backward compatibility with existing CSV files
+LEGACY_NAME_MAP: Dict[str, str] = {
+    "VAE": "Base VAE",
+    "IRecon-VAE": "VAE+IB",
+    "Lorentz-VAE": "VAE+Hyp",
+    "GM-VAE": "VAE+IB+Hyp",
     "HSDE (Full)": "HSDE",
+    "GAT+IB+Lorentz": "GAT+IB+Hyp",
+    "GAT+IB+Lorentz+SDE": "GAT+IB+Hyp+SDE",
+    "GAT+IB+Lorentz+SDE+PDE": "HSDE",
 }
 
 # Extended configs (benchmark comparison with external methods)
@@ -93,18 +116,18 @@ _BENCHMARK_ORDER: List[str] = [
     "MLP",
     "GAT",
     "GAT+IB",
-    "GAT+IB+Lorentz",
-    "GAT+IB+Lorentz+SDE",
-    "GAT+IB+Lorentz+SDE+PDE",
+    "GAT+IB+Hyp",
+    "GAT+IB+Hyp+SDE",
+    "HSDE",
 ]
 
 _BENCHMARK_PALETTE: List[str] = [
     "#0072B2",  # MLP
     "#56B4E9",  # GAT
     "#E69F00",  # GAT+IB
-    "#009E73",  # GAT+IB+Lorentz
-    "#CC79A7",  # GAT+IB+Lorentz+SDE
-    "#D55E00",  # GAT+IB+Lorentz+SDE+PDE (HSDE Full)
+    "#009E73",  # GAT+IB+Hyp
+    "#CC79A7",  # GAT+IB+Hyp+SDE
+    "#D55E00",  # HSDE
 ]
 
 _BENCHMARK_COLORS: Dict[str, str] = OrderedDict(
@@ -260,15 +283,15 @@ FMT_DELTA = "+.3f"
 
 # Line styles per config
 _LINE_STYLES: Dict[str, object] = {
-    "VAE": "-",
-    "IRecon-VAE": "--",
-    "Lorentz-VAE": "-.",
-    "GM-VAE": ":",
-    "HSDE (Full)": (0, (5, 1)),
+    "Base VAE": "-",
+    "VAE+IB": "--",
+    "VAE+Hyp": "-.",
+    "VAE+IB+Hyp": ":",
+    "HSDE": (0, (5, 1)),
 }
 
 _LINE_WIDTHS: Dict[str, float] = {
-    c: (2.2 if c == "HSDE (Full)" else 1.4) for c in _CONFIG_ORDER
+    c: (2.2 if c == "HSDE" else 1.4) for c in _CONFIG_ORDER
 }
 
 

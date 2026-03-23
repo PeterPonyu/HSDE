@@ -211,13 +211,15 @@ class Env(HSDEModel, envMixin, scMixin):
 
         self.n_obs, self.n_var = adata.shape
 
-        if "cell_type" in adata.obs.columns:
-            self.labels = LabelEncoder().fit_transform(adata.obs["cell_type"])
-        else:
-            try:
-                self.labels = KMeans(n_clusters=latent_dim, n_init=10, random_state=self.random_seed).fit_predict(X_norm)
-            except Exception:
-                self.labels = np.random.default_rng(self.random_seed).integers(0, latent_dim, size=self.n_obs)
+        try:
+            self.labels = KMeans(
+                n_clusters=min(latent_dim, self.n_obs - 1),
+                n_init=10, random_state=self.random_seed,
+            ).fit_predict(X_norm)
+        except Exception:
+            self.labels = np.random.default_rng(self.random_seed).integers(
+                0, latent_dim, size=self.n_obs
+            )
 
         rng = np.random.default_rng(self.random_seed)
         indices = rng.permutation(self.n_obs)
@@ -289,11 +291,10 @@ class Env(HSDEModel, envMixin, scMixin):
             hvg_mask = adata.var["highly_variable"].values
             self.X_raw = X_raw[:, hvg_mask].astype(np.float32)
 
-        # Labels
-        if "cell_type" in adata.obs.columns:
-            self.labels = LabelEncoder().fit_transform(adata.obs["cell_type"])
-        else:
-            self.labels = KMeans(n_clusters=latent_dim, n_init=10).fit_predict(self.X_norm)
+        # Labels — Leiden on the neighbor graph (unsupervised, no cell_type)
+        _leiden_key = '_hsde_val_leiden'
+        sc.tl.leiden(adata, resolution=1.0, key_added=_leiden_key)
+        self.labels = LabelEncoder().fit_transform(adata.obs[_leiden_key].values)
 
         # Graph connectivity
         coo = adata.obsp["connectivities"].tocoo()

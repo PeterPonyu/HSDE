@@ -359,12 +359,12 @@ def main():
     # ══════════════════════════════════════════════
     # Experiment 1: Ablation (5 methods)
     # ══════════════════════════════════════════════
-    ablation_methods = ['VAE', 'IRecon-VAE', 'Lorentz-VAE', 'GM-VAE', 'HSDE (Full)']
+    ablation_methods = ['Base VAE', 'VAE+IB', 'VAE+Hyp', 'VAE+IB+Hyp', 'HSDE']
     ablation_sig = [
-        ('VAE', 'HSDE (Full)'),
-        ('IRecon-VAE', 'HSDE (Full)'),
-        ('Lorentz-VAE', 'HSDE (Full)'),
-        ('GM-VAE', 'HSDE (Full)'),
+        ('Base VAE', 'HSDE'),
+        ('VAE+IB', 'HSDE'),
+        ('VAE+Hyp', 'HSDE'),
+        ('VAE+IB+Hyp', 'HSDE'),
     ]
     generate_experiment_figures(
         data_folder=os.path.join(results_base, 'ablation', 'tables'),
@@ -380,15 +380,15 @@ def main():
     # Experiment 2: GM-VAE Benchmark (6 methods)
     # ══════════════════════════════════════════════
     gmvae_methods = [
-        'GM-VAE (euclidean)', 'GM-VAE (poincare)', 'GM-VAE (pgm)',
-        'GM-VAE (learnable-pgm)', 'GM-VAE (hw)', 'HSDE (Full)'
+        'GM-VAE (Eucl.)', 'GM-VAE (Poinc.)', 'GM-VAE (PGM)',
+        'GM-VAE (L-PGM)', 'GM-VAE (HW)', 'HSDE'
     ]
     gmvae_sig = [
-        ('GM-VAE (euclidean)', 'HSDE (Full)'),
-        ('GM-VAE (poincare)', 'HSDE (Full)'),
-        ('GM-VAE (pgm)', 'HSDE (Full)'),
-        ('GM-VAE (learnable-pgm)', 'HSDE (Full)'),
-        ('GM-VAE (hw)', 'HSDE (Full)'),
+        ('GM-VAE (Eucl.)', 'HSDE'),
+        ('GM-VAE (Poinc.)', 'HSDE'),
+        ('GM-VAE (PGM)', 'HSDE'),
+        ('GM-VAE (L-PGM)', 'HSDE'),
+        ('GM-VAE (HW)', 'HSDE'),
     ]
     generate_experiment_figures(
         data_folder=os.path.join(results_base, 'gmvae_benchmark', 'tables'),
@@ -403,13 +403,13 @@ def main():
     # ══════════════════════════════════════════════
     # Experiment 3: Disentanglement (6 methods)
     # ══════════════════════════════════════════════
-    disent_methods = ['VAE', 'beta-VAE', 'DIP-VAE', 'TC-VAE', 'InfoVAE', 'HSDE (Full)']
+    disent_methods = ['Base VAE', 'beta-VAE', 'DIP-VAE', 'TC-VAE', 'InfoVAE', 'HSDE']
     disent_sig = [
-        ('VAE', 'HSDE (Full)'),
-        ('beta-VAE', 'HSDE (Full)'),
-        ('DIP-VAE', 'HSDE (Full)'),
-        ('TC-VAE', 'HSDE (Full)'),
-        ('InfoVAE', 'HSDE (Full)'),
+        ('Base VAE', 'HSDE'),
+        ('beta-VAE', 'HSDE'),
+        ('DIP-VAE', 'HSDE'),
+        ('TC-VAE', 'HSDE'),
+        ('InfoVAE', 'HSDE'),
     ]
     generate_experiment_figures(
         data_folder=os.path.join(results_base, 'disentanglement', 'tables'),

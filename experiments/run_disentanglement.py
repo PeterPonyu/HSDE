@@ -13,7 +13,7 @@ Variants (6) in order: base -> regularizers -> full:
   3. DIP-VAE   — covariance regularization (dip=10)
   4. TC-VAE    — total correlation penalty (tc=10)
   5. InfoVAE   — MMD regularization (info=10)
-  6. HSDE (Full) — graph + IRecon + Lorentz + SDE + PDE
+  6. HSDE — graph + IB + Hyp + SDE + PDE
 
 Each variant: 200 epochs x 12 datasets.
 """
@@ -63,7 +63,7 @@ VARIANTS = {
         recon=1.0, beta=1.0, dip=0.0, tc=0.0, info=10.0,
         encoder_type='mlp',
     ),
-    'HSDE (Full)': dict(
+    'HSDE': dict(
         recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
         encoder_type='graph', graph_type='GAT',
         use_sde=True, use_pde=True,
@@ -88,7 +88,7 @@ def run_single(adata1, variant_name, params, dataset_name):
         model.fit(epochs=EPOCHS, patience=30, early_stop=True,
                   compute_metrics=False)
         latent = model.get_latent()
-        labels = get_labels(adata1)
+        labels, _ = get_labels(adata1)
         metrics = evaluate_latent(latent, labels)
 
         res = model.get_resource_metrics()
