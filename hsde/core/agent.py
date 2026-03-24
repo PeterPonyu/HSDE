@@ -319,7 +319,7 @@ class HSDE(Env, VectorFieldMixin):
 
         # Validate positive numeric parameters
         for name, val in [("hidden_dim", hidden_dim), ("latent_dim", latent_dim),
-                          ("batch_size", batch_size), ("lr", lr), ("epochs", epochs)]:
+                          ("batch_size", batch_size), ("lr", lr)]:
             if val <= 0:
                 raise ValueError(f"{name} must be positive, got {val}")
 
