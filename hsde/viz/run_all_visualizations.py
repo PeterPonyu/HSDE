@@ -96,7 +96,7 @@ def main():
     # ══════════════════════════════════════════════
     # Experiment 1: Ablation (5 methods)
     # ══════════════════════════════════════════════
-    ablation_methods = ["VAE", "IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE (Full)"]
+    ablation_methods = ["VAE", "IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE"]
     ablation_palette = dict(zip(ablation_methods, [
         "#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00"
     ]))
@@ -112,8 +112,8 @@ def main():
     # Experiment 2: GM-VAE Benchmark (6 methods)
     # ══════════════════════════════════════════════
     gmvae_methods = [
-        "GM-VAE (euclidean)", "GM-VAE (poincare)", "GM-VAE (pgm)",
-        "GM-VAE (learnable-pgm)", "GM-VAE (hw)", "HSDE (Full)"
+        "GM-VAE (Eucl.)", "GM-VAE (Poinc.)", "GM-VAE (PGM)",
+        "GM-VAE (L-PGM)", "GM-VAE (HW)", "HSDE"
     ]
     gmvae_palette = dict(zip(gmvae_methods, [
         "#0072B2", "#56B4E9", "#E69F00", "#009E73", "#CC79A7", "#D55E00"
@@ -129,7 +129,7 @@ def main():
     # ══════════════════════════════════════════════
     # Experiment 3: Disentanglement (6 methods)
     # ══════════════════════════════════════════════
-    disent_methods = ["VAE", "beta-VAE", "DIP-VAE", "TC-VAE", "InfoVAE", "HSDE (Full)"]
+    disent_methods = ["VAE", "beta-VAE", "DIP-VAE", "TC-VAE", "InfoVAE", "HSDE"]
     disent_palette = dict(zip(disent_methods, [
         "#0072B2", "#56B4E9", "#E69F00", "#009E73", "#CC79A7", "#D55E00"
     ]))

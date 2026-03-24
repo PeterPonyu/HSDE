@@ -114,10 +114,8 @@ VARIANTS = {
         encoder_type="mlp",
     ),
     "HSDE": dict(
-        recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
+        recon=1.0, irecon=0.5, lorentz=5.0, beta=0.1,
         encoder_type="graph", graph_type="GAT",
-        use_sde=True, use_pde=True,
-        vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
         n_neighbors=15,
     ),
 }

@@ -3,14 +3,14 @@
 Experiment 1: HSDE Ablation Study
 ==================================
 Additive ablation of HSDE core architecture components.
-Full model = Graph GAT + IRecon + Lorentz + SDE + PDE.
+Full model = Graph GAT + IRecon + Lorentz (β=0.1).
 
 Variants (5) in logical architecture order:
   1. Base VAE    — MLP base VAE
   2. VAE+IB      — + information bottleneck
   3. VAE+Hyp     — + hyperbolic geometry
   4. VAE+IB+Hyp  — + both IB + hyperbolic
-  5. HSDE        — Graph GAT + IB + Hyp + SDE + PDE
+  5. HSDE        — Graph GAT + IB + Hyp (β=0.1)
 
 Preprocessing: normalize, log1p, 2000 HVGs, subsample 3000 cells.
 Each variant: 200 epochs x 12 datasets.
@@ -57,10 +57,8 @@ VARIANTS = {
         encoder_type='mlp',
     ),
     'HSDE': dict(
-        recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
+        recon=1.0, irecon=0.5, lorentz=5.0, beta=0.1,
         encoder_type='graph', graph_type='GAT',
-        use_sde=True, use_pde=True,
-        vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
     ),
 }
 

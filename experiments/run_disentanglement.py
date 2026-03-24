@@ -13,7 +13,7 @@ Variants (6) in order: base -> regularizers -> full:
   3. DIP-VAE   — covariance regularization (dip=10)
   4. TC-VAE    — total correlation penalty (tc=10)
   5. InfoVAE   — MMD regularization (info=10)
-  6. HSDE — graph + IB + Hyp + SDE + PDE
+  6. HSDE — Graph GAT + IB + Hyp (β=0.1)
 
 Each variant: 200 epochs x 12 datasets.
 """
@@ -64,10 +64,8 @@ VARIANTS = {
         encoder_type='mlp',
     ),
     'HSDE': dict(
-        recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
+        recon=1.0, irecon=0.5, lorentz=5.0, beta=0.1,
         encoder_type='graph', graph_type='GAT',
-        use_sde=True, use_pde=True,
-        vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
     ),
 }
 

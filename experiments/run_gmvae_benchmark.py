@@ -13,7 +13,7 @@ Variants (6) in order: external baselines -> proposed model:
   3. GM-VAE (PGM)            — Product Gaussian Manifold
   4. GM-VAE (LearnablePGM)   — PGM with learnable curvature
   5. GM-VAE (HW)             — Hyperboloid Wrapped Normal (Lorentz)
-  6. HSDE                   — Full HSDE (Graph GAT + all components)
+  6. HSDE                   — HSDE (Graph GAT + IB + Hyp, β=0.1)
 
 Each variant: 200 epochs x 12 datasets.
 """
@@ -63,10 +63,8 @@ GMVAE_DISTRIBUTIONS = ['euclidean', 'poincare', 'pgm', 'learnable_pgm', 'hw']
 
 # Full HSDE config (the proposed model to compare against)
 HSDE_FULL_CONFIG = dict(
-    recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
+    recon=1.0, irecon=0.5, lorentz=5.0, beta=0.1,
     encoder_type='graph', graph_type='GAT',
-    use_sde=True, use_pde=True,
-    vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
 )
 
 

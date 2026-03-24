@@ -344,16 +344,47 @@ class Env(HSDEModel, envMixin, scMixin):
     # Training
     # ========================================================================
 
+    def _sample_subgraph(self, rng):
+        """Sample a node-induced subgraph for mini-batch graph training."""
+        n = self.n_obs
+        size = min(self.subgraph_size, n)
+        nodes = rng.choice(n, size, replace=False)
+        node_set = set(nodes)
+
+        # Build old-to-new index map
+        node_map = {old: new for new, old in enumerate(nodes)}
+
+        # Filter edges to those within the subgraph
+        src, dst = self.edge_index[0], self.edge_index[1]
+        mask = np.array([s in node_set and d in node_set for s, d in zip(src, dst)])
+
+        if mask.any():
+            sub_src = np.array([node_map[s] for s in src[mask]])
+            sub_dst = np.array([node_map[d] for d in dst[mask]])
+            sub_ei = np.array([sub_src, sub_dst])
+            sub_ew = self.edge_weight[mask]
+        else:
+            sub_ei = np.zeros((2, 0), dtype=np.int64)
+            sub_ew = np.zeros(0, dtype=np.float32)
+
+        return nodes, sub_ei, sub_ew
+
     def train_epoch(self):
-        """One training epoch (batch-based for MLP/Transformer, full-graph for Graph)."""
+        """One training epoch (batch-based for MLP/Transformer, subgraph-sampled for Graph)."""
         self.nn.train()
         epoch_losses = []
 
         if self.encoder_type == "graph":
-            # Full-graph training pass
-            self.update(self.X_norm, self.X_raw, self.edge_index, self.edge_weight)
-            if len(self.loss) > 0:
-                epoch_losses.append(self.loss[-1][0])
+            # Subgraph-sampled training: multiple gradient steps per epoch
+            rng = np.random.default_rng()
+            for _ in range(self.num_subgraphs_per_epoch):
+                nodes, sub_ei, sub_ew = self._sample_subgraph(rng)
+                self.update(
+                    self.X_norm[nodes], self.X_raw[nodes],
+                    sub_ei, sub_ew,
+                )
+                if len(self.loss) > 0:
+                    epoch_losses.append(self.loss[-1][0])
         else:
             # Mini-batch training
             for batch_norm, batch_raw in self.train_loader:
