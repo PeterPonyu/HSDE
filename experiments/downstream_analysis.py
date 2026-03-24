@@ -5,7 +5,7 @@ HSDE Downstream Analysis
 
 Comprehensive downstream analysis pipeline that:
 1. Runs all 5 ablation variants on available local datasets
-2. Computes full DRE + LSE + clustering metrics via MoCoO evaluators
+2. Computes full DRE + LSE + clustering metrics via internal hsde.metrics
 3. Generates cross-dataset comparison tables
 4. Produces statistical significance tests (Wilcoxon signed-rank)
 5. Generates publication-quality figures via the HSDE visualization controller
@@ -43,35 +43,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from hsde import HSDE
 
 # ---------------------------------------------------------------------------
-# MoCoO evaluators (DRE + LSE series)
+# Metrics (internalized — no external MoCoO dependency)
 # ---------------------------------------------------------------------------
-MOCOO_EVAL_DIR = Path(os.environ.get(
-    "HSDE_MOCOO_DIR",
-    str(Path.home() / "Desktop" / "MoCoO" / "mocoo" / "evaluation"),
-))
-sys.path.insert(0, str(MOCOO_EVAL_DIR.parent.parent))
-
-try:
-    from mocoo.evaluation.dre import DimensionalityReductionEvaluator
-    from mocoo.evaluation.lse import SingleCellLatentSpaceEvaluator
-    HAS_MOCOO = True
-except (ImportError, ModuleNotFoundError):
-    HAS_MOCOO = False
-    DimensionalityReductionEvaluator = None
-    SingleCellLatentSpaceEvaluator = None
-
-# Extended evaluators
-try:
-    from mocoo.evaluation.drex import evaluate_extended_dr
-    HAS_DREX = True
-except ImportError:
-    HAS_DREX = False
-
-try:
-    from mocoo.evaluation.lsex import evaluate_extended_latent
-    HAS_LSEX = True
-except ImportError:
-    HAS_LSEX = False
+from hsde.metrics import compute_all_metrics as _compute_all_metrics
+from hsde.metrics.dre import DimensionalityReductionEvaluator
+from hsde.metrics.lse import SingleCellLatentSpaceEvaluator
 
 
 # ---------------------------------------------------------------------------
@@ -174,52 +150,20 @@ def load_and_preprocess(filepath):
 
 
 # ---------------------------------------------------------------------------
-# Metrics computation using MoCoO evaluators
+# Metrics computation using internal hsde.metrics
 # ---------------------------------------------------------------------------
 
 def compute_clustering_metrics(latent, labels):
     """Compute clustering metrics (NMI, ARI, ASW, DAV, CAL, COR)."""
-    from sklearn.cluster import KMeans
-    from sklearn.metrics import (
-        normalized_mutual_info_score, adjusted_rand_score,
-        silhouette_score, davies_bouldin_score, calinski_harabasz_score,
-    )
     from sklearn.preprocessing import LabelEncoder
-
     le = LabelEncoder()
     labels_int = le.fit_transform(np.asarray(labels).astype(str))
-    n_clusters = len(np.unique(labels_int))
-
-    pred = KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit_predict(latent)
-
-    metrics = {
-        "NMI": normalized_mutual_info_score(labels_int, pred),
-        "ARI": adjusted_rand_score(labels_int, pred),
-    }
-
-    try:
-        metrics["ASW"] = silhouette_score(latent, pred) if len(np.unique(pred)) > 1 else 0.0
-    except Exception:
-        metrics["ASW"] = 0.0
-    try:
-        metrics["DAV"] = davies_bouldin_score(latent, pred)
-    except Exception:
-        metrics["DAV"] = float("nan")
-    try:
-        metrics["CAL"] = calinski_harabasz_score(latent, pred)
-    except Exception:
-        metrics["CAL"] = 0.0
-    try:
-        acorr = np.abs(np.corrcoef(latent.T))
-        metrics["COR"] = float(acorr.sum(axis=1).mean() - 1)
-    except Exception:
-        metrics["COR"] = 0.0
-
-    return metrics
+    raw = _compute_all_metrics(latent, labels_int, dre_k=15)
+    return {k: raw[k] for k in ['NMI', 'ARI', 'ASW', 'DAV', 'CAL', 'COR'] if k in raw}
 
 
 def compute_dre_metrics(latent, verbose=False):
-    """Compute DRE series using MoCoO DimensionalityReductionEvaluator."""
+    """Compute DRE series using internal DimensionalityReductionEvaluator."""
     import umap
     from sklearn.manifold import TSNE
 
@@ -260,7 +204,7 @@ def compute_dre_metrics(latent, verbose=False):
 
 
 def compute_lse_metrics(latent, verbose=False):
-    """Compute LSE series using MoCoO SingleCellLatentSpaceEvaluator."""
+    """Compute LSE series using internal SingleCellLatentSpaceEvaluator."""
     metrics = {}
     try:
         lse = SingleCellLatentSpaceEvaluator(data_type="trajectory", verbose=verbose)
@@ -465,12 +409,6 @@ def generate_report(all_results, effectiveness_df, output_dir):
 # ---------------------------------------------------------------------------
 
 def main():
-    if not HAS_MOCOO:
-        print("ERROR: MoCoO evaluation package not found.")
-        print(f"  Expected at: {MOCOO_EVAL_DIR}")
-        print("  Set HSDE_MOCOO_DIR env var to the correct evaluation directory.")
-        sys.exit(1)
-
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 

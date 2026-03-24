@@ -26,20 +26,7 @@ import scipy.sparse as sp
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-# Add evaluator (configurable via HSDE_EVALUATOR_DIR env var)
-_EVALUATOR_DIR = os.environ.get(
-    "HSDE_EVALUATOR_DIR",
-    os.path.expanduser("~/.copilot/skills/latent-space-evaluator"),
-)
-if os.path.isdir(_EVALUATOR_DIR):
-    sys.path.insert(0, _EVALUATOR_DIR)
-try:
-    from metrics_expanded import compute_all_metrics
-except ImportError:
-    raise ImportError(
-        f"Cannot import metrics_expanded. Set HSDE_EVALUATOR_DIR env var "
-        f"or install the latent-space-evaluator package. Checked: {_EVALUATOR_DIR}"
-    )
+from hsde.metrics import compute_all_metrics
 
 # ── Constants ──
 MAX_CELLS = 3000

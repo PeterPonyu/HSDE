@@ -71,9 +71,7 @@ def lorentz_distance(
     xy_inner = lorentzian_product(x, y, use_double=False)
     clamped = torch.clamp(-xy_inner, min=1.0 + eps, max=1e10)
 
-    if torch.isnan(clamped).any() or torch.isinf(clamped).any():
-        return torch.zeros_like(clamped).mean()
-
+    # NaN/Inf propagates to total_loss.item() check in model.py — no GPU sync here
     dist = torch.where(
         clamped > 1e4,
         torch.log(2 * clamped),
@@ -111,10 +109,11 @@ def exp_map_at_origin(
     y_coords = torch.sinh(v_norm) * v_unit
     result = torch.cat([x_coord, y_coords], dim=-1)
 
-    if torch.isnan(result).any() or torch.isinf(result).any():
-        safe_point = torch.zeros_like(result)
-        safe_point[..., 0] = 1.0
-        result = safe_point
+    # Replace NaN/Inf with safe hyperboloid origin — element-wise, no GPU→CPU sync
+    safe_point = torch.zeros_like(result)
+    safe_point[..., 0] = 1.0
+    bad = torch.isnan(result) | torch.isinf(result)
+    result = torch.where(bad, safe_point, result)
 
     if use_double and orig_dtype != torch.float64:
         result = result.to(orig_dtype)

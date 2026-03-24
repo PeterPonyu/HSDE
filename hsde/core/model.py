@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import math
 import warnings
 from typing import Optional
 from sklearn.metrics.pairwise import pairwise_distances
@@ -132,8 +133,18 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             feature_decoder_type=feature_decoder_type,
         )
 
-        self.nn_optimizer = optim.Adam(self.nn.parameters(), lr=lr)
+        # AMP: enable mixed precision on CUDA for ~2x throughput
+        self._use_amp = (device is not None and "cuda" in str(device))
+
+        # Fused Adam: runs the entire optimizer step in a single CUDA kernel,
+        # eliminating ~700 per-parameter .item() GPU→CPU syncs per step.
+        # Requires CUDA and AMP (fused Adam only works with float32/float16 on CUDA).
+        self.nn_optimizer = optim.Adam(
+            self.nn.parameters(), lr=lr, fused=self._use_amp,
+        )
         self.loss = []
+
+        self._scaler = torch.amp.GradScaler("cuda", enabled=self._use_amp)
 
     # ========================================================================
     # Reconstruction loss
@@ -173,9 +184,21 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
 
     @torch.no_grad()
     def take_latent(self, state, edge_index=None, edge_weight=None):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
+        if not isinstance(state, torch.Tensor):
+            state = torch.as_tensor(state, dtype=torch.float32)
+        state = state.to(self.device, non_blocking=True)
+        if edge_index is not None:
+            if not isinstance(edge_index, torch.Tensor):
+                edge_index = torch.as_tensor(edge_index, dtype=torch.long)
+            ei = edge_index.to(self.device, non_blocking=True)
+        else:
+            ei = None
+        if edge_weight is not None:
+            if not isinstance(edge_weight, torch.Tensor):
+                edge_weight = torch.as_tensor(edge_weight, dtype=torch.float32)
+            ew = edge_weight.to(self.device, non_blocking=True)
+        else:
+            ew = None
 
         if self.use_sde:
             if self.encoder_type == "graph":
@@ -326,97 +349,108 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
 
     def update(self, states_norm, states_raw, edge_index=None, edge_weight=None):
         """One gradient descent step with full multi-objective loss."""
-        states_norm = torch.tensor(states_norm, dtype=torch.float32).to(self.device)
-        states_raw = torch.tensor(states_raw, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
-
-        if torch.isnan(states_norm).any() or torch.isinf(states_norm).any():
-            self._nan_escalate("NaN or Inf detected in input states")
-            return
-
-        outputs = self.nn(states_norm, ei, ew)
-
-        # Access outputs via named attributes (ForwardOutput dataclass)
-        q_z, q_m, q_s = outputs.q_z, outputs.q_m, outputs.q_s
-        pred_x, dropout_x = outputs.pred_x, outputs.dropout_x
-        le, ld, pred_xl, dropout_xl = outputs.le, outputs.ld, outputs.pred_xl, outputs.dropout_xl
-        z_manifold, ld_manifold = outputs.z_manifold, outputs.ld_manifold
-        pred_a = outputs.pred_a
-
-        if self.use_sde:
-            qz_div = F.mse_loss(q_z, outputs.q_z_sde, reduction="none").sum(-1).mean()
-            target_raw = outputs.x_sorted  # SDE reorders input
-
-            recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
-            recon_loss += self.recon * self._compute_reconstruction_loss(
-                target_raw, outputs.pred_x_sde, outputs.dropout_x_sde
-            )
+        # Accept both numpy arrays and torch tensors to avoid unnecessary copies
+        if not isinstance(states_norm, torch.Tensor):
+            states_norm = torch.as_tensor(states_norm, dtype=torch.float32)
+        states_norm = states_norm.to(self.device, non_blocking=True)
+        if not isinstance(states_raw, torch.Tensor):
+            states_raw = torch.as_tensor(states_raw, dtype=torch.float32)
+        states_raw = states_raw.to(self.device, non_blocking=True)
+        if edge_index is not None:
+            if not isinstance(edge_index, torch.Tensor):
+                edge_index = torch.as_tensor(edge_index, dtype=torch.long)
+            ei = edge_index.to(self.device, non_blocking=True)
         else:
-            qz_div = torch.tensor(0.0, device=self.device)
-            target_raw = states_raw
+            ei = None
+        if edge_weight is not None:
+            if not isinstance(edge_weight, torch.Tensor):
+                edge_weight = torch.as_tensor(edge_weight, dtype=torch.float32)
+            ew = edge_weight.to(self.device, non_blocking=True)
+        else:
+            ew = None
 
-            recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
+        with torch.amp.autocast("cuda", enabled=self._use_amp):
+            outputs = self.nn(states_norm, ei, ew)
 
-        if self.use_pde:
-            qz_div += self.pde_reg * F.mse_loss(q_z, outputs.q_z_pde, reduction="none").sum(-1).mean()
-            recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
-                target_raw, outputs.pred_x_pde, outputs.dropout_x_pde
-            )
+            # Access outputs via named attributes (ForwardOutput dataclass)
+            q_z, q_m, q_s = outputs.q_z, outputs.q_m, outputs.q_s
+            pred_x, dropout_x = outputs.pred_x, outputs.dropout_x
+            le, ld, pred_xl, dropout_xl = outputs.le, outputs.ld, outputs.pred_xl, outputs.dropout_xl
+            z_manifold, ld_manifold = outputs.z_manifold, outputs.ld_manifold
+            pred_a = outputs.pred_a
 
-        irecon_loss = torch.tensor(0.0, device=self.device)
-        if self.irecon > 0:
-            irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
+            if self.use_sde:
+                qz_div = F.mse_loss(q_z, outputs.q_z_sde, reduction="none").sum(-1).mean()
+                target_raw = outputs.x_sorted  # SDE reorders input
 
-        # Geometric (manifold) loss
-        geometric_loss = torch.tensor(0.0, device=self.device)
-        if self.lorentz > 0:
-            if not (torch.isnan(z_manifold).any() or torch.isnan(ld_manifold).any()):
+                recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
+                recon_loss += self.recon * self._compute_reconstruction_loss(
+                    target_raw, outputs.pred_x_sde, outputs.dropout_x_sde
+                )
+            else:
+                qz_div = torch.tensor(0.0, device=self.device)
+                target_raw = states_raw
+
+                recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
+
+            if self.use_pde:
+                qz_div += self.pde_reg * F.mse_loss(q_z, outputs.q_z_pde, reduction="none").sum(-1).mean()
+                recon_loss += self.pde_reg * self.recon * self._compute_reconstruction_loss(
+                    target_raw, outputs.pred_x_pde, outputs.dropout_x_pde
+                )
+
+            irecon_loss = torch.tensor(0.0, device=self.device)
+            if self.irecon > 0:
+                irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
+
+            # Geometric (manifold) loss — skip NaN manifold outputs without sync
+            geometric_loss = torch.tensor(0.0, device=self.device)
+            if self.lorentz > 0:
                 if self.use_euclidean_manifold:
                     from .utils import euclidean_distance
                     dist = euclidean_distance(z_manifold, ld_manifold)
                 else:
                     dist = lorentz_distance(z_manifold, ld_manifold)
-                if not torch.isnan(dist).any():
-                    geometric_loss = self.lorentz * dist.mean()
+                # NaN dist → NaN geometric_loss → caught by total_loss check below
+                geometric_loss = self.lorentz * dist.mean()
 
-        if torch.isnan(q_m).any() or torch.isnan(q_s).any():
-            self._nan_escalate("NaN detected in posterior parameters (q_m, q_s)")
-            return
+            # KL divergence (NaN in q_m/q_s propagates to total_loss check below)
+            kl_div = self.beta * self._normal_kl(
+                q_m, q_s, torch.zeros_like(q_m), torch.zeros_like(q_s)
+            ).sum(dim=-1).mean()
 
-        # KL divergence
-        kl_div = self.beta * self._normal_kl(
-            q_m, q_s, torch.zeros_like(q_m), torch.zeros_like(q_s)
-        ).sum(dim=-1).mean()
+            # Additional regularizers
+            dip_loss = self.dip * self._dip_loss(q_m, q_s) if self.dip > 0 else torch.tensor(0.0, device=self.device)
+            tc_loss = self.tc * self._betatc_compute_total_correlation(q_z, q_m, q_s) if self.tc > 0 else torch.tensor(0.0, device=self.device)
+            mmd_loss = self.info * self._compute_mmd(q_z, torch.randn_like(q_z)) if self.info > 0 else torch.tensor(0.0, device=self.device)
 
-        # Additional regularizers
-        dip_loss = self.dip * self._dip_loss(q_m, q_s) if self.dip > 0 else torch.tensor(0.0, device=self.device)
-        tc_loss = self.tc * self._betatc_compute_total_correlation(q_z, q_m, q_s) if self.tc > 0 else torch.tensor(0.0, device=self.device)
-        mmd_loss = self.info * self._compute_mmd(q_z, torch.randn_like(q_z)) if self.info > 0 else torch.tensor(0.0, device=self.device)
+            # Graph adjacency loss (CCVGAE)
+            adj_loss = torch.tensor(0.0, device=self.device)
+            if self.use_graph_decoder and self.w_adj > 0 and pred_a is not None and ei is not None:
+                adj_loss = self.w_adj * self._compute_adj_loss(pred_a, ei, states_norm.size(0), ew)
 
-        # Graph adjacency loss (CCVGAE)
-        adj_loss = torch.tensor(0.0, device=self.device)
-        if self.use_graph_decoder and self.w_adj > 0 and pred_a is not None and ei is not None:
-            adj_loss = self.w_adj * self._compute_adj_loss(pred_a, ei, states_norm.size(0), ew)
+            total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss + adj_loss
 
-        total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss + adj_loss
-
-        if torch.isnan(total_loss) or torch.isinf(total_loss):
-            status = "NaN" if torch.isnan(total_loss) else "Inf"
+        # Single GPU→CPU sync: get total_loss value, then check NaN/Inf on CPU
+        total_val = total_loss.item()
+        if math.isnan(total_val) or math.isinf(total_val):
+            status = "NaN" if math.isnan(total_val) else "Inf"
             self._nan_escalate(f"total_loss is {status}")
             return
 
         self.nn_optimizer.zero_grad()
-        total_loss.backward()
+        self._scaler.scale(total_loss).backward()
 
         if self.grad_clip is not None:
+            self._scaler.unscale_(self.nn_optimizer)
             torch.nn.utils.clip_grad_norm_(self.nn.parameters(), self.grad_clip)
 
-        self.nn_optimizer.step()
+        self._scaler.step(self.nn_optimizer)
+        self._scaler.update()
         self._nan_skip_count = 0  # Reset on successful step
 
         self.loss.append((
-            total_loss.item(), recon_loss.item(), irecon_loss.item(),
-            geometric_loss.item(), qz_div.item(), kl_div.item(),
-            dip_loss.item(), tc_loss.item(), mmd_loss.item(), adj_loss.item(),
+            total_val, recon_loss.detach(), irecon_loss.detach(),
+            geometric_loss.detach(), qz_div.detach(), kl_div.detach(),
+            dip_loss.detach(), tc_loss.detach(), mmd_loss.detach(), adj_loss.detach(),
         ))

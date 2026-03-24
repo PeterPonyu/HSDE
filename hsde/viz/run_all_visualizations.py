@@ -7,7 +7,7 @@ Fully automatic script that discovers all HSDE benchmark results and
 generates publication-quality figures for every experiment series.
 
 Covers:
-  1. Ablation study (VAE -> IRecon-VAE -> Lorentz-VAE -> GM-VAE -> HSDE)
+  1. Ablation study (Base VAE -> VAE+IB -> VAE+Hyp -> VAE+IB+Hyp -> HSDE)
   2. GM-VAE geometric benchmark (5 external GM-VAE + HSDE)
   3. Disentanglement regularization (VAE, beta-VAE, DIP, TC, Info, HSDE)
   4. Cross-dataset benchmark (MLP, GAT, GAT+IB, GAT+IB+Lor, etc.)
@@ -86,7 +86,6 @@ def run_experiment_visualization(
 
 def main():
     results_base = PROJECT_ROOT / "HSDE_results"
-    benchmark_base = PROJECT_ROOT / "benchmark_results"
 
     print(f"\n{'#'*70}")
     print(f"  HSDE: Automatic Visualization System")
@@ -96,7 +95,7 @@ def main():
     # ══════════════════════════════════════════════
     # Experiment 1: Ablation (5 methods)
     # ══════════════════════════════════════════════
-    ablation_methods = ["VAE", "IRecon-VAE", "Lorentz-VAE", "GM-VAE", "HSDE"]
+    ablation_methods = ["Base VAE", "VAE+IB", "VAE+Hyp", "VAE+IB+Hyp", "HSDE"]
     ablation_palette = dict(zip(ablation_methods, [
         "#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00"
     ]))
@@ -141,29 +140,6 @@ def main():
         experiment_name="Disentanglement Regularization",
     )
 
-    # ══════════════════════════════════════════════
-    # Experiment 4: Cross-dataset Benchmark
-    # ══════════════════════════════════════════════
-    if (benchmark_base / "tables").exists():
-        # Detect method names from first CSV
-        import pandas as pd
-        csv_files = list((benchmark_base / "tables").glob("*.csv"))
-        if csv_files:
-            first_df = pd.read_csv(csv_files[0], index_col=0)
-            bench_methods = list(first_df.index)
-            bench_palette = dict(zip(bench_methods, [
-                "#0072B2", "#56B4E9", "#E69F00", "#009E73",
-                "#CC79A7", "#D55E00", "#F0E442", "#999999",
-            ][:len(bench_methods)]))
-
-            run_experiment_visualization(
-                tables_dir=benchmark_base / "tables",
-                output_dir=benchmark_base / "figures_auto",
-                method_names=bench_methods,
-                palette=bench_palette,
-                experiment_name="Cross-Dataset Benchmark",
-            )
-
     print(f"\n{'#'*70}")
     print(f"  ALL VISUALIZATIONS COMPLETE")
     print(f"{'#'*70}")
@@ -171,8 +147,7 @@ def main():
     # Print output locations
     for d in [results_base / "ablation" / "figures",
               results_base / "gmvae_benchmark" / "figures",
-              results_base / "disentanglement" / "figures",
-              benchmark_base / "figures_auto"]:
+              results_base / "disentanglement" / "figures"]:
         if d.exists():
             n_files = len(list(d.glob("*")))
             print(f"  {d}: {n_files} files")
