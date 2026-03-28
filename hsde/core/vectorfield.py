@@ -2,9 +2,7 @@
 # vectorfield.py - Vector Field Analysis and Visualization
 # ============================================================================
 """
-Adapted from HSDE vectorfield.py with graph encoder support:
-- take_grad now accepts optional edge_index/edge_weight for graph encoders
-- All analysis and plotting methods preserved
+Vector field analysis and visualization for SDE-based trajectory inference.
 """
 
 import logging

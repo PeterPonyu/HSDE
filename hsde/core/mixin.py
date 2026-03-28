@@ -1,16 +1,14 @@
 # ============================================================================
-# mixin.py - Shared Mixins (HSDE + CCVGAE)
+# mixin.py - Shared Mixins for HSDE
 # ============================================================================
 """
-Merged mixins from both HSDE and CCVGAE:
+Mixins:
 - scviMixin: Count-based likelihoods (NB, ZINB, Poisson, ZIP)
 - betatcMixin: β-TC-VAE total correlation
 - infoMixin: InfoVAE with MMD
 - dipMixin: DIP-VAE covariance regularization
-- adjMixin: Graph adjacency builder (from CCVGAE)
-- envMixin: Clustering evaluation metrics (merged from both)
+- envMixin: Clustering evaluation metrics
 - SDEMixin: Neural SDE solver
-- scMixin: Scanpy-based preprocessing (from CCVGAE)
 """
 
 import logging
@@ -27,9 +25,7 @@ from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
 )
-from scipy.sparse import issparse
 from typing import Optional
-from anndata import AnnData
 
 logger = logging.getLogger(__name__)
 
@@ -132,23 +128,6 @@ class dipMixin:
 
 
 # ============================================================================
-# Graph Adjacency Mixin (from CCVGAE)
-# ============================================================================
-
-class adjMixin:
-    """Sparse adjacency matrix builder for graph-based training."""
-
-    def _build_adj(self, edge_index, num_nodes, edge_weight=None):
-        if edge_weight is None:
-            edge_weight = torch.ones(edge_index.size(1), device=edge_index.device)
-        return torch.sparse_coo_tensor(
-            edge_index, edge_weight,
-            size=(num_nodes, num_nodes),
-            device=edge_index.device,
-        )
-
-
-# ============================================================================
 # Evaluation Metrics
 # ============================================================================
 
@@ -156,12 +135,7 @@ class envMixin:
     """Clustering metrics for latent space evaluation."""
 
     def _calc_score_with_labels(self, latent, labels):
-        """Compute clustering metrics with unsupervised reference labels.
-
-        ARI/NMI: KMeans predictions vs reference labels.
-        ASW/CH/DB: internal validity using KMeans predictions only,
-        consistent with the external metrics_expanded.py pipeline.
-        """
+        """Compute clustering metrics with unsupervised reference labels."""
         n_clusters = len(np.unique(labels))
         if n_clusters <= 1:
             logger.warning("Only %d unique label(s); returning NaN for cluster metrics", n_clusters)
@@ -223,80 +197,3 @@ class SDEMixin:
                 f"Try smaller step_size, method='euler', or CPU. Original: {e}"
             )
         return pred_z
-
-
-# ============================================================================
-# Scanpy-Based Preprocessing (from CCVGAE)
-# ============================================================================
-
-class scMixin:
-    """Scanpy-based preprocessing: normalization, HVG, decomposition, batch correction."""
-
-    def _preprocess(self, adata: AnnData, layer: str, n_var: int) -> None:
-        import scanpy as sc
-
-        try:
-            if layer not in adata.layers.keys():
-                adata.layers[layer] = adata.X.copy()
-                logger.info(f"Creating layer: {layer}.")
-            if "log1p" not in adata.uns.keys():
-                sc.pp.normalize_total(adata, target_sum=1e4)
-                sc.pp.log1p(adata)
-                logger.info("Performing normalization.")
-            if "highly_variable" not in adata.var.keys():
-                if n_var:
-                    sc.pp.highly_variable_genes(adata, n_top_genes=n_var)
-                else:
-                    sc.pp.highly_variable_genes(adata)
-                logger.info("Selecting highly variable genes.")
-        except (ValueError, KeyError, AttributeError) as e:
-            logger.error("Error during preprocessing: %s", e)
-            raise
-
-    def _decomposition(self, adata: AnnData, tech: str, latent_dim: int) -> None:
-        from sklearn.decomposition import PCA, NMF, FastICA, TruncatedSVD, FactorAnalysis
-
-        try:
-            decomp_map = {
-                "PCA": PCA,
-                "NMF": NMF,
-                "FastICA": FastICA,
-                "TruncatedSVD": TruncatedSVD,
-                "FactorAnalysis": FactorAnalysis,
-            }
-            if tech not in decomp_map:
-                raise ValueError(f"Unsupported method: {tech}")
-
-            X_hvg = adata[:, adata.var["highly_variable"]].X
-            if issparse(X_hvg):
-                X_hvg = X_hvg.toarray()
-            latent = decomp_map[tech](n_components=latent_dim).fit_transform(X_hvg)
-            adata.obsm[f"X_{tech}"] = latent
-            logger.info(f"Stored latent in adata.obsm['X_{tech}'].")
-        except (ValueError, KeyError, TypeError) as e:
-            logger.error("Error during decomposition: %s", e)
-            raise
-
-    def _batchcorrect(self, adata: AnnData, batch_tech: str, tech: str, layer: str) -> None:
-        try:
-            has_batch = "batch" in adata.obs.columns
-            if batch_tech == "harmony":
-                if not has_batch:
-                    raise ValueError("Harmony requires 'batch' column in adata.obs")
-                import scanpy.external as sce
-                sce.pp.harmony_integrate(
-                    adata, key="batch", basis=f"X_{tech}", adjusted_basis=f"X_harmony_{tech}"
-                )
-            elif batch_tech == "scvi":
-                import scvi
-
-                setup_kwargs = {"layer": layer}
-                if has_batch:
-                    setup_kwargs["batch_key"] = "batch"
-                scvi.model.SCVI.setup_anndata(adata, **setup_kwargs)
-                model = scvi.model.SCVI(adata)
-                model.train()
-                adata.obsm["X_scvi"] = model.get_latent_representation()
-        except (ValueError, ImportError, RuntimeError) as e:
-            logger.error("Error during batch correction: %s", e)
-            raise

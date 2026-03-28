@@ -2,70 +2,23 @@
 # environment.py - Data Loading, Preprocessing, and Training Loop
 # ============================================================================
 """
-Unified environment merging HSDE and CCVGAE data handling:
-- HSDE-style: raw count preprocessing with adaptive normalization, DataLoader
-- CCVGAE-style: graph construction via scanpy, subgraph sampling
-- Supports both MLP/Transformer (batch-based) and Graph (graph-based) training
+Environment for HSDE data handling:
+- Raw count preprocessing with adaptive normalization
+- DataLoader-based batch training for MLP/Transformer encoders
+- Validation with clustering metrics and early stopping
 """
 
 import logging
 import os
 
 from .model import HSDEModel
-from .mixin import envMixin, scMixin
+from .mixin import envMixin
 import numpy as np
 from scipy.sparse import issparse
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import LabelEncoder
 import torch
-from torch.utils.data import DataLoader, TensorDataset, Dataset
+from torch.utils.data import DataLoader, TensorDataset
 
-
-class SubgraphDataset(Dataset):
-    """Pre-samples subgraphs for graph training with DataLoader prefetching.
-
-    Each __getitem__ returns pre-tensorized (X_norm, X_raw, edge_index, edge_weight)
-    ready for model.update(). Using num_workers>0 overlaps CPU sampling with GPU compute.
-    """
-
-    def __init__(self, X_norm, X_raw, edge_index, edge_weight, subgraph_size, n_per_epoch):
-        self.X_norm = X_norm          # numpy float32
-        self.X_raw = X_raw            # numpy float32
-        self.edge_index = edge_index  # numpy int array [2, E]
-        self.edge_weight = edge_weight  # numpy float32 [E]
-        self.subgraph_size = subgraph_size
-        self.n_per_epoch = n_per_epoch
-        self.n_obs = X_norm.shape[0]
-        # Pre-allocate remap buffer (one per worker, but ok since Dataset is forked)
-        self._node_remap = np.empty(self.n_obs, dtype=np.int64)
-
-    def __len__(self):
-        return self.n_per_epoch
-
-    def __getitem__(self, idx):
-        size = min(self.subgraph_size, self.n_obs)
-        nodes = np.random.choice(self.n_obs, size, replace=False)
-
-        # Vectorized edge filtering
-        in_sub = np.zeros(self.n_obs, dtype=bool)
-        in_sub[nodes] = True
-        src, dst = self.edge_index[0], self.edge_index[1]
-        mask = in_sub[src] & in_sub[dst]
-
-        if mask.any():
-            self._node_remap[nodes] = np.arange(size)
-            sub_ei = np.stack([self._node_remap[src[mask]], self._node_remap[dst[mask]]])
-            sub_ew = self.edge_weight[mask]
-        else:
-            sub_ei = np.zeros((2, 0), dtype=np.int64)
-            sub_ew = np.zeros(0, dtype=np.float32)
-
-        return (
-            torch.as_tensor(self.X_norm[nodes]),
-            torch.as_tensor(self.X_raw[nodes]),
-            torch.as_tensor(sub_ei, dtype=torch.long),
-            torch.as_tensor(sub_ew, dtype=torch.float32),
-        )
 
 # Limit CPU thread over-subscription: without this, each process spawns
 # threads equal to the total CPU count (e.g. 24), causing severe contention
@@ -74,10 +27,6 @@ _MAX_THREADS = min(os.cpu_count() or 4, 8)
 torch.set_num_threads(_MAX_THREADS)
 os.environ.setdefault("OMP_NUM_THREADS", str(_MAX_THREADS))
 os.environ.setdefault("MKL_NUM_THREADS", str(_MAX_THREADS))
-# Note: NUMBA_NUM_THREADS is NOT set here because numba's thread pool
-# cannot be resized after initialization (raises RuntimeError). Numba is
-# initialized early by scanpy/umap imports, so setting it here is too late.
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +61,12 @@ def compute_dataset_stats(X):
     }
 
 
-class Env(HSDEModel, envMixin, scMixin):
+class Env(HSDEModel, envMixin):
     """
-    Unified environment supporting both batch-based (MLP/Transformer) and
-    graph-based (GAT/GCN/etc.) encoder training.
+    Environment supporting batch-based (MLP/Transformer) encoder training.
 
-    For graph encoders, constructs a cell-cell graph from the data and
-    supports subgraph sampling for scalability (CCVGAE-style).
+    Handles data registration, preprocessing, train/val/test splitting,
+    and the training loop with early stopping.
     """
 
     def __init__(
@@ -131,9 +79,8 @@ class Env(HSDEModel, envMixin, scMixin):
         vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
         train_size=0.7, val_size=0.15, test_size=0.15,
         batch_size=128, random_seed=42,
-        # Encoder/Decoder selection
+        # Encoder selection
         encoder_type="mlp",
-        feature_decoder_type="mlp",
         # Transformer
         attn_embed_dim=64, attn_num_heads=4, attn_num_layers=2,
         attn_seq_len=8, attn_dropout=0.1,
@@ -142,28 +89,6 @@ class Env(HSDEModel, envMixin, scMixin):
         sde_hidden_dim=None, sde_solver_method="euler", sde_step_size=None,
         # PDE
         pde_k=15, pde_alpha=0.1, pde_steps=2, pde_tau=1.0,
-        # Graph (CCVGAE)
-        graph_type="GAT",
-        graph_hidden_layers=2,
-        graph_dropout=0.05,
-        graph_Cheb_k=1,
-        graph_alpha=0.5,
-        use_residual=True,
-        use_graph_decoder=False,
-        structure_decoder_type="mlp",
-        decoder_hidden_dim=128,
-        graph_threshold=0,
-        graph_sparse_threshold=None,
-        w_adj=0.0,
-        graph_loss_weight=1.0,
-        # Graph data construction
-        n_neighbors=15,
-        n_var=None,
-        tech="PCA",
-        batch_tech=None,
-        all_feat=False,
-        subgraph_size=512,
-        num_subgraphs_per_epoch=10,
         **kwargs,
     ):
         self.train_size = train_size
@@ -174,22 +99,10 @@ class Env(HSDEModel, envMixin, scMixin):
         self.loss_type = loss_type
         self.adaptive_norm = adaptive_norm
         self.encoder_type = encoder_type.lower()
-        self._init_device = device  # Store early for _create_dataloaders
-
-        # Graph-specific storage
-        self.edge_index = None
-        self.edge_weight = None
-        self.n_neighbors = n_neighbors
-        self.subgraph_size = subgraph_size
-        self.num_subgraphs_per_epoch = num_subgraphs_per_epoch
+        self._init_device = device
 
         # Register data
-        if self.encoder_type == "graph":
-            self._register_anndata_graph(
-                adata, layer, latent_dim, n_var, tech, n_neighbors, batch_tech, all_feat
-            )
-        else:
-            self._register_anndata(adata, layer, latent_dim)
+        self._register_anndata(adata, layer, latent_dim)
 
         super().__init__(
             recon=recon, irecon=irecon, lorentz=lorentz, beta=beta,
@@ -203,7 +116,6 @@ class Env(HSDEModel, envMixin, scMixin):
             use_sde=use_sde, use_pde=use_pde,
             vae_reg=vae_reg, sde_reg=sde_reg, pde_reg=pde_reg,
             encoder_type=encoder_type,
-            feature_decoder_type=feature_decoder_type,
             attn_embed_dim=attn_embed_dim, attn_num_heads=attn_num_heads,
             attn_num_layers=attn_num_layers, attn_seq_len=attn_seq_len,
             attn_dropout=attn_dropout,
@@ -211,24 +123,8 @@ class Env(HSDEModel, envMixin, scMixin):
             sde_time_cond=sde_time_cond, sde_hidden_dim=sde_hidden_dim,
             sde_solver_method=sde_solver_method, sde_step_size=sde_step_size,
             pde_k=pde_k, pde_alpha=pde_alpha, pde_steps=pde_steps, pde_tau=pde_tau,
-            graph_type=graph_type,
-            graph_hidden_layers=graph_hidden_layers,
-            graph_dropout=graph_dropout,
-            graph_Cheb_k=graph_Cheb_k,
-            graph_alpha=graph_alpha,
-            use_residual=use_residual,
-            use_graph_decoder=use_graph_decoder,
-            structure_decoder_type=structure_decoder_type,
-            decoder_hidden_dim=decoder_hidden_dim,
-            graph_threshold=graph_threshold,
-            graph_sparse_threshold=graph_sparse_threshold,
-            w_adj=w_adj,
-            graph_loss_weight=graph_loss_weight,
             **kwargs,
         )
-
-        # Re-enforce thread limit: torch_geometric import may reset it
-        torch.set_num_threads(_MAX_THREADS)
 
         self.train_losses = []
         self.val_losses = []
@@ -238,7 +134,7 @@ class Env(HSDEModel, envMixin, scMixin):
         self.patience_counter = 0
 
     # ========================================================================
-    # Data Registration (HSDE-style for MLP/Transformer)
+    # Data Registration
     # ========================================================================
 
     def _register_anndata(self, adata, layer, latent_dim):
@@ -309,103 +205,7 @@ class Env(HSDEModel, envMixin, scMixin):
         self._create_dataloaders()
 
     # ========================================================================
-    # Data Registration (CCVGAE-style for Graph encoder)
-    # ========================================================================
-
-    def _register_anndata_graph(self, adata, layer, latent_dim, n_var, tech, n_neighbors, batch_tech, all_feat):
-        """CCVGAE-style preprocessing: normalize, HVG, decompose, build graph."""
-        import scanpy as sc
-
-        # Preprocessing
-        self._preprocess(adata, layer, n_var)
-        self._decomposition(adata, tech, latent_dim)
-
-        if batch_tech:
-            self._batchcorrect(adata, batch_tech, tech, layer)
-
-        if batch_tech == "harmony":
-            use_rep = f"X_harmony_{tech}"
-        elif batch_tech == "scvi":
-            use_rep = "X_scvi"
-        else:
-            use_rep = f"X_{tech}"
-
-        sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=use_rep)
-
-        # Extract features
-        if all_feat:
-            X = adata.layers[layer]
-            X = X.toarray() if issparse(X) else np.asarray(X)
-            self.X_norm = np.log1p(X).astype(np.float32)
-        else:
-            X = adata[:, adata.var["highly_variable"]].X
-            X = X.toarray() if issparse(X) else np.asarray(X)
-            self.X_norm = X.astype(np.float32)
-
-        self.n_obs, self.n_var = self.X_norm.shape
-
-        # Raw counts for reconstruction
-        X_raw = adata.layers[layer]
-        X_raw = X_raw.toarray() if issparse(X_raw) else np.asarray(X_raw)
-        if all_feat:
-            self.X_raw = X_raw.astype(np.float32)
-        else:
-            # Use HVG subset of raw counts
-            hvg_mask = adata.var["highly_variable"].values
-            self.X_raw = X_raw[:, hvg_mask].astype(np.float32)
-
-        # Labels — Leiden on the neighbor graph (unsupervised, no cell_type)
-        _leiden_key = '_hsde_val_leiden'
-        sc.tl.leiden(adata, resolution=1.0, key_added=_leiden_key)
-        self.labels = LabelEncoder().fit_transform(adata.obs[_leiden_key].values)
-
-        # Graph connectivity
-        coo = adata.obsp["connectivities"].tocoo()
-        self.edge_index = np.array([coo.row, coo.col])
-        self.edge_weight = coo.data.astype(np.float32)
-
-        # Simple splits (full graph always available)
-        self.y = np.arange(self.n_obs)
-        self.idx = np.arange(self.n_obs)
-
-        rng = np.random.default_rng(self.random_seed)
-        indices = rng.permutation(self.n_obs)
-        n_train = int(self.train_size * self.n_obs)
-        n_val = int(self.val_size * self.n_obs)
-        self.train_idx = indices[:n_train]
-        self.val_idx = indices[n_train:n_train + n_val]
-        self.test_idx = indices[n_train + n_val:]
-
-        self.X_train_norm = self.X_norm[self.train_idx]
-        self.X_train_raw = self.X_raw[self.train_idx]
-        self.X_val_norm = self.X_norm[self.val_idx]
-        self.X_val_raw = self.X_raw[self.val_idx]
-        self.X_test_norm = self.X_norm[self.test_idx]
-        self.X_test_raw = self.X_raw[self.test_idx]
-
-        self.labels_train = self.labels[self.train_idx]
-        self.labels_val = self.labels[self.val_idx]
-        self.labels_test = self.labels[self.test_idx]
-
-        logger.info(f"Graph constructed: {self.n_obs} nodes, {len(coo.data)} edges")
-        logger.info(f"Data split: Train={len(self.train_idx)}, Val={len(self.val_idx)}, Test={len(self.test_idx)}")
-
-        # Create SubgraphDataset + DataLoader for prefetched graph training
-        _dev = getattr(self, 'device', getattr(self, '_init_device', 'cpu'))
-        _is_cuda = _dev.type == "cuda" if hasattr(_dev, "type") else ("cuda" in str(_dev))
-        self._subgraph_dataset = SubgraphDataset(
-            self.X_norm, self.X_raw, self.edge_index, self.edge_weight,
-            self.subgraph_size, self.num_subgraphs_per_epoch,
-        )
-        self._subgraph_loader = DataLoader(
-            self._subgraph_dataset, batch_size=None, shuffle=False,
-            num_workers=2 if _is_cuda else 0,
-            pin_memory=_is_cuda,
-            persistent_workers=True if _is_cuda else False,
-        )
-
-    # ========================================================================
-    # DataLoaders (for MLP/Transformer)
+    # DataLoaders
     # ========================================================================
 
     def _create_dataloaders(self):
@@ -413,8 +213,6 @@ class Env(HSDEModel, envMixin, scMixin):
         val_ds = TensorDataset(torch.FloatTensor(self.X_val_norm), torch.FloatTensor(self.X_val_raw))
         test_ds = TensorDataset(torch.FloatTensor(self.X_test_norm), torch.FloatTensor(self.X_test_raw))
 
-        # pin_memory enables async CPU→GPU transfer with non_blocking=True
-        # num_workers>0 prefetches next batch while GPU processes current one
         _dev = getattr(self, 'device', getattr(self, '_init_device', 'cpu'))
         use_cuda = _dev.type == "cuda" if hasattr(_dev, "type") else ("cuda" in str(_dev))
         loader_kw = dict(
@@ -430,49 +228,15 @@ class Env(HSDEModel, envMixin, scMixin):
     # Training
     # ========================================================================
 
-    def _sample_subgraph(self, rng):
-        """Sample a node-induced subgraph for mini-batch graph training."""
-        n = self.n_obs
-        size = min(self.subgraph_size, n)
-        nodes = rng.choice(n, size, replace=False)
-
-        # Vectorized membership test using a boolean lookup array
-        in_subgraph = np.zeros(n, dtype=bool)
-        in_subgraph[nodes] = True
-
-        # Filter edges: both endpoints must be in the subgraph
-        src, dst = self.edge_index[0], self.edge_index[1]
-        mask = in_subgraph[src] & in_subgraph[dst]
-
-        if mask.any():
-            # Vectorized remapping: build old→new index via argsort
-            node_remap = np.empty(n, dtype=np.int64)
-            node_remap[nodes] = np.arange(size)
-            sub_ei = np.array([node_remap[src[mask]], node_remap[dst[mask]]])
-            sub_ew = self.edge_weight[mask]
-        else:
-            sub_ei = np.zeros((2, 0), dtype=np.int64)
-            sub_ew = np.zeros(0, dtype=np.float32)
-
-        return nodes, sub_ei, sub_ew
-
     def train_epoch(self):
-        """One training epoch (batch-based for MLP/Transformer, subgraph-sampled for Graph)."""
+        """One training epoch with mini-batch gradient descent."""
         self.nn.train()
         epoch_losses = []
 
-        if self.encoder_type == "graph":
-            # Prefetched subgraph training: DataLoader workers sample while GPU computes
-            for batch_norm, batch_raw, sub_ei, sub_ew in self._subgraph_loader:
-                self.update(batch_norm, batch_raw, sub_ei, sub_ew)
-                if len(self.loss) > 0:
-                    epoch_losses.append(self.loss[-1][0])
-        else:
-            # Mini-batch training — pass tensors directly to update()
-            for batch_norm, batch_raw in self.train_loader:
-                self.update(batch_norm, batch_raw)
-                if len(self.loss) > 0:
-                    epoch_losses.append(self.loss[-1][0])
+        for batch_norm, batch_raw in self.train_loader:
+            self.update(batch_norm, batch_raw)
+            if len(self.loss) > 0:
+                epoch_losses.append(self.loss[-1][0])
 
         avg = np.mean(epoch_losses) if epoch_losses else 0.0
         self.train_losses.append(avg)
@@ -484,14 +248,9 @@ class Env(HSDEModel, envMixin, scMixin):
         all_latents = []
 
         with torch.no_grad():
-            if self.encoder_type == "graph":
-                # Graph encoder needs full graph; extract val indices afterwards
-                full_latent = self.take_latent(self.X_norm, self.edge_index, self.edge_weight)
-                all_latents.append(full_latent[self.val_idx])
-            else:
-                for batch_norm, _ in self.val_loader:
-                    latent = self.take_latent(batch_norm)
-                    all_latents.append(latent)
+            for batch_norm, _ in self.val_loader:
+                latent = self.take_latent(batch_norm)
+                all_latents.append(latent)
 
         all_latents = np.concatenate(all_latents, axis=0)
         val_score = self._calc_score_with_labels(all_latents, self.labels_val)
@@ -503,16 +262,10 @@ class Env(HSDEModel, envMixin, scMixin):
         return avg_val_loss, val_score
 
     def validate_loss(self):
-        """Fast validation: use recent training loss trend as early stopping signal.
-
-        Avoids the expensive clustering metric computation while still
-        providing a reasonable signal for early stopping. Uses an exponential
-        moving average of the training loss.
-        """
+        """Fast validation: use recent training loss trend as early stopping signal."""
         if len(self.train_losses) < 2:
             val_loss = self.train_losses[-1] if self.train_losses else 0.0
         else:
-            # Smoothed training loss (EMA over last 5 epochs)
             window = min(5, len(self.train_losses))
             recent = self.train_losses[-window:]
             alpha = 0.4

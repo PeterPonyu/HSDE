@@ -8,7 +8,7 @@ Tests that all base model configurations are actually workable and effective:
 2. Training converges (loss decreases)
 3. Latent representations are valid (finite, correct shape)
 4. Clustering metrics (ARI, NMI) are above chance level
-5. All encoder types work (MLP, Transformer, Graph)
+5. All encoder types work (MLP, Transformer)
 6. All optional components work (SDE, PDE, IB, Lorentz)
 7. All loss types work (NB, ZINB, Poisson, ZIP)
 
@@ -260,67 +260,6 @@ class TestTransformerEncoder:
 
 
 # ---------------------------------------------------------------------------
-# Test: Graph encoder (GAT)
-# ---------------------------------------------------------------------------
-
-class TestGraphEncoder:
-    def test_gat_training(self, synthetic_adata, device):
-        try:
-            import torch_geometric
-        except ImportError:
-            pytest.skip("torch_geometric not installed")
-
-        model, latent = _train_and_check(
-            synthetic_adata, device, epochs=50,
-            encoder_type="graph", graph_type="GAT",
-            graph_hidden_layers=2, n_neighbors=10,
-        )
-        assert latent.shape == (300, 8)
-
-    def test_gcn_training(self, synthetic_adata, device):
-        try:
-            import torch_geometric
-        except ImportError:
-            pytest.skip("torch_geometric not installed")
-
-        model, latent = _train_and_check(
-            synthetic_adata, device, epochs=50,
-            encoder_type="graph", graph_type="GCN",
-            graph_hidden_layers=2, n_neighbors=10,
-        )
-        assert latent.shape == (300, 8)
-
-    def test_graph_decoder(self, synthetic_adata, device):
-        try:
-            import torch_geometric
-        except ImportError:
-            pytest.skip("torch_geometric not installed")
-
-        model, latent = _train_and_check(
-            synthetic_adata, device, epochs=30,
-            encoder_type="graph", graph_type="GAT",
-            use_graph_decoder=True, w_adj=0.1,
-            n_neighbors=10,
-        )
-        assert latent.shape == (300, 8)
-
-    def test_centroid_inference(self, synthetic_adata, device):
-        try:
-            import torch_geometric
-        except ImportError:
-            pytest.skip("torch_geometric not installed")
-
-        model, _ = _train_and_check(
-            synthetic_adata, device, epochs=30,
-            encoder_type="graph", graph_type="GAT",
-            n_neighbors=10,
-        )
-        centroid = model.get_centroid()
-        assert centroid.shape == (300, 8)
-        assert np.all(np.isfinite(centroid))
-
-
-# ---------------------------------------------------------------------------
 # Test: SDE trajectory inference
 # ---------------------------------------------------------------------------
 
@@ -362,6 +301,71 @@ class TestSDE:
 
 
 # ---------------------------------------------------------------------------
+# Test: PDE latent diffusion
+# ---------------------------------------------------------------------------
+
+class TestPDE:
+    def test_pde_training(self, synthetic_adata, device):
+        model, latent = _train_and_check(
+            synthetic_adata, device, epochs=50,
+            encoder_type="mlp", use_pde=True,
+            pde_reg=0.2,
+        )
+        assert latent.shape == (300, 8)
+
+    def test_pde_latent_extraction(self, synthetic_adata, device):
+        model, _ = _train_and_check(
+            synthetic_adata, device, epochs=30,
+            encoder_type="mlp", use_pde=True,
+            pde_reg=0.2,
+        )
+        pde_latent = model.get_pde_latent()
+        assert pde_latent.shape == (300, 8)
+        assert np.all(np.isfinite(pde_latent))
+
+
+# ---------------------------------------------------------------------------
+# Test: HSDE Full (SDE + PDE + IB + Lorentz)
+# ---------------------------------------------------------------------------
+
+class TestHSDEFull:
+    @pytest.fixture(autouse=True)
+    def _require_torchsde(self):
+        pytest.importorskip("torchsde", reason="torchsde not installed")
+
+    def test_full_model(self, synthetic_adata, device):
+        model, latent = _train_and_check(
+            synthetic_adata, device, epochs=50,
+            encoder_type="mlp",
+            recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
+            use_sde=True, use_pde=True,
+            vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
+        )
+        assert latent.shape == (300, 8)
+
+    def test_full_model_all_outputs(self, synthetic_adata, device):
+        model, latent = _train_and_check(
+            synthetic_adata, device, epochs=30,
+            encoder_type="mlp",
+            recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
+            use_sde=True, use_pde=True,
+            vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
+        )
+        bottleneck = model.get_bottleneck()
+        assert bottleneck.shape == (300, 2)
+
+        pseudotime = model.get_time()
+        assert pseudotime.shape == (300,)
+
+        pde_latent = model.get_pde_latent()
+        assert pde_latent.shape == (300, 8)
+
+        for name, arr in [("bottleneck", bottleneck), ("pseudotime", pseudotime),
+                          ("pde_latent", pde_latent)]:
+            assert np.all(np.isfinite(arr)), f"{name} contains NaN/Inf"
+
+
+# ---------------------------------------------------------------------------
 # Test: Loss types
 # ---------------------------------------------------------------------------
 
@@ -379,68 +383,6 @@ class TestLossTypes:
                   compute_metrics=False)
         latent = model.get_latent()
         assert np.all(np.isfinite(latent))
-
-
-# ---------------------------------------------------------------------------
-# Test: HSDE Full (Graph + SDE + PDE + IB + Lorentz)
-# ---------------------------------------------------------------------------
-
-class TestHSDEFull:
-    def test_full_model(self, synthetic_adata, device):
-        try:
-            import torch_geometric  # noqa: F401
-        except ImportError:
-            pytest.skip("torch_geometric not installed")
-        try:
-            import torchsde  # noqa: F401
-        except ImportError:
-            pytest.skip("torchsde not installed")
-
-        model, latent = _train_and_check(
-            synthetic_adata, device, epochs=50,
-            encoder_type="graph", graph_type="GAT",
-            recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
-            use_sde=True, use_pde=True,
-            vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
-            n_neighbors=10,
-        )
-        assert latent.shape == (300, 8)
-
-    def test_full_model_all_outputs(self, synthetic_adata, device):
-        try:
-            import torch_geometric  # noqa: F401
-        except ImportError:
-            pytest.skip("torch_geometric not installed")
-        try:
-            import torchsde  # noqa: F401
-        except ImportError:
-            pytest.skip("torchsde not installed")
-
-        model, latent = _train_and_check(
-            synthetic_adata, device, epochs=30,
-            encoder_type="graph", graph_type="GAT",
-            recon=1.0, irecon=1.0, lorentz=5.0, beta=1.0,
-            use_sde=True, use_pde=True,
-            vae_reg=0.5, sde_reg=0.5, pde_reg=0.2,
-            n_neighbors=10,
-        )
-        # Test all output methods
-        bottleneck = model.get_bottleneck()
-        assert bottleneck.shape == (300, 2)
-
-        pseudotime = model.get_time()
-        assert pseudotime.shape == (300,)
-
-        centroid = model.get_centroid()
-        assert centroid.shape == (300, 8)
-
-        pde_latent = model.get_pde_latent()
-        assert pde_latent.shape == (300, 8)
-
-        # All should be finite
-        for name, arr in [("bottleneck", bottleneck), ("pseudotime", pseudotime),
-                          ("centroid", centroid), ("pde_latent", pde_latent)]:
-            assert np.all(np.isfinite(arr)), f"{name} contains NaN/Inf"
 
 
 # ---------------------------------------------------------------------------
@@ -466,62 +408,11 @@ class TestParameterValidation:
             HSDE(synthetic_adata, layer="counts", device=device,
                  use_sde=True, vae_reg=0.3, sde_reg=0.3)
 
-
-# ---------------------------------------------------------------------------
-# Test: Visualization controller
-# ---------------------------------------------------------------------------
-
-class TestVisualizationController:
-    def test_load_ablation_results(self):
-        tables_dir = os.path.join(
-            PROJECT_ROOT, "HSDE_results", "ablation", "tables"
-        )
-        if not os.path.exists(tables_dir):
-            pytest.skip("Ablation results not found")
-
-        from hsde.viz.controller import VisualizationController
-        ctrl = VisualizationController(results_dir=tables_dir)
-        ctrl.load_all()
-
-        assert len(ctrl.raw_data) > 0
-        assert len(ctrl.get_available_metrics()) > 0
-        assert ctrl.long_data is not None
-        assert len(ctrl.long_data) > 0
-
-    def test_metric_availability(self):
-        tables_dir = os.path.join(
-            PROJECT_ROOT, "HSDE_results", "ablation", "tables"
-        )
-        if not os.path.exists(tables_dir):
-            pytest.skip("Ablation results not found")
-
-        from hsde.viz.controller import VisualizationController
-        ctrl = VisualizationController(results_dir=tables_dir)
-        ctrl.load_all()
-
-        metrics = ctrl.get_available_metrics()
-        # DRE series should be present
-        dre_metrics = [m for m in metrics if m.startswith("DRE_")]
-        assert len(dre_metrics) > 0, "No DRE metrics found"
-
-        # LSE series should be present
-        lse_metrics = [m for m in metrics if m.startswith("LSE_")]
-        assert len(lse_metrics) > 0, "No LSE metrics found"
-
-    def test_significance_computation(self):
-        tables_dir = os.path.join(
-            PROJECT_ROOT, "HSDE_results", "ablation", "tables"
-        )
-        if not os.path.exists(tables_dir):
-            pytest.skip("Ablation results not found")
-
-        from hsde.viz.controller import VisualizationController
-        ctrl = VisualizationController(results_dir=tables_dir)
-        ctrl.load_all()
-
-        pval, stars = ctrl.compute_significance("NMI", "VAE", "HSDE (Full)")
-        assert isinstance(pval, float)
-        assert stars in ("***", "**", "*", "ns")
+    def test_invalid_encoder_type(self, synthetic_adata, device):
+        from hsde import HSDE
+        with pytest.raises(ValueError, match="encoder_type"):
+            HSDE(synthetic_adata, layer="counts", device=device,
+                 encoder_type="graph")
 
 
 if __name__ == "__main__":

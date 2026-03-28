@@ -1,27 +1,25 @@
 # ============================================================================
-# module.py - Unified Neural Network Modules (MLP / Transformer / Graph)
+# module.py - Neural Network Modules (MLP / Transformer)
 # ============================================================================
 """
-Neural network modules combining HSDE and CCVGAE architectures:
+Neural network modules for HSDE:
 
 Encoders:
-  - MLPEncoder: Fully-connected variational encoder (HSDE)
-  - TransformerEncoder: Multi-head projection transformer (HSDE)
-  - GraphEncoder: Graph attention / convolution encoder (CCVGAE)
+  - MLPEncoder: Fully-connected variational encoder
+  - TransformerEncoder: Multi-head projection transformer
 
 Decoders:
-  - MLPDecoder: Count-based decoder with NB/ZINB/Poisson/ZIP (HSDE)
-  - GraphDecoder: Graph convolution decoder (CCVGAE)
+  - Decoder: Count-based decoder with NB/ZINB/Poisson/ZIP
 
 VAE:
-  - Unified VAE combining encoder + decoder + SDE + PDE + manifold + graph structure
+  - Unified VAE combining encoder + decoder + SDE + PDE + manifold
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
-from typing import Optional, Tuple
+from typing import Optional
 import dataclasses
 
 from .utils import exp_map_at_origin
@@ -45,8 +43,6 @@ class ForwardOutput:
     ld_manifold: torch.Tensor
     dropout_x: torch.Tensor
     dropout_xl: torch.Tensor
-    # Graph structure decoder (None when not using graph decoder)
-    pred_a: Optional[torch.Tensor] = None
     # SDE-specific (None when not using SDE)
     q_z_sde: Optional[torch.Tensor] = None
     pred_x_sde: Optional[torch.Tensor] = None
@@ -60,7 +56,7 @@ class ForwardOutput:
 
 
 # ============================================================================
-# MLP Encoder (from HSDE)
+# MLP Encoder
 # ============================================================================
 
 class MLPEncoder(nn.Module):
@@ -111,7 +107,7 @@ class MLPEncoder(nn.Module):
 
 
 # ============================================================================
-# Transformer Encoder (from HSDE)
+# Transformer Encoder
 # ============================================================================
 
 class TransformerEncoder(nn.Module):
@@ -197,7 +193,7 @@ class TransformerEncoder(nn.Module):
 
 
 # ============================================================================
-# MLP Decoder (from HSDE)
+# MLP Decoder
 # ============================================================================
 
 class Decoder(nn.Module):
@@ -243,16 +239,15 @@ class Decoder(nn.Module):
 
 
 # ============================================================================
-# Unified VAE (MLP / Transformer / Graph + SDE + PDE + Manifold + Graph Structure)
+# Unified VAE (MLP / Transformer + SDE + PDE + Manifold)
 # ============================================================================
 
 class VAE(nn.Module, SDEMixin):
     """
-    Unified VAE supporting three encoder types and optional:
+    Unified VAE supporting MLP and Transformer encoders with optional:
     - Hyperbolic/Euclidean manifold regularization
     - Neural SDE for continuous dynamics
     - Graph PDE diffusion for latent smoothing
-    - Graph structure decoder for adjacency reconstruction (CCVGAE)
     - Count-based likelihoods (NB, ZINB, Poisson, ZIP)
     """
 
@@ -288,21 +283,6 @@ class VAE(nn.Module, SDEMixin):
         pde_alpha: float = 0.1,
         pde_steps: int = 2,
         pde_tau: float = 1.0,
-        # Graph encoder params (CCVGAE)
-        graph_type: str = "GAT",
-        graph_hidden_layers: int = 2,
-        graph_dropout: float = 0.05,
-        graph_Cheb_k: int = 1,
-        graph_alpha: float = 0.5,
-        use_residual: bool = True,
-        # Graph structure decoder
-        use_graph_decoder: bool = False,
-        structure_decoder_type: str = "mlp",
-        decoder_hidden_dim: int = 128,
-        graph_threshold: float = 0,
-        graph_sparse_threshold: Optional[int] = None,
-        # Feature decoder type
-        feature_decoder_type: str = "mlp",
         **kwargs,
     ):
         super().__init__()
@@ -312,11 +292,10 @@ class VAE(nn.Module, SDEMixin):
         self.use_euclidean_manifold = use_euclidean_manifold
         self.use_sde = use_sde
         self.use_pde = use_pde
-        self.use_graph_decoder = use_graph_decoder
-        self.use_residual = use_residual
         self.sde_solver_method = sde_solver_method
         self.sde_step_size = sde_step_size
-        self.feature_decoder_type = feature_decoder_type.lower()
+        self.latent_dim = action_dim
+        self.i_dim = i_dim
 
         # ----- Encoder -----
         if self.encoder_type == "mlp":
@@ -329,54 +308,13 @@ class VAE(nn.Module, SDEMixin):
                 attn_embed_dim, attn_num_heads, attn_num_layers,
                 attn_seq_len, attn_dropout, use_sde,
             ).to(device)
-        elif self.encoder_type == "graph":
-            from .graph_modules import GraphEncoder as GEncoder
-
-            self.encoder = GEncoder(
-                state_dim, hidden_dim, action_dim,
-                conv_layer_type=graph_type,
-                hidden_layers=graph_hidden_layers,
-                dropout=graph_dropout,
-                Cheb_k=graph_Cheb_k,
-                alpha=graph_alpha,
-                use_sde=use_sde,
-            ).to(device)
         else:
             raise ValueError(f"Unknown encoder_type: {encoder_type}")
 
         # ----- Feature Decoder -----
-        if self.feature_decoder_type == "mlp":
-            self.decoder = Decoder(
-                state_dim, hidden_dim, action_dim, loss_type, use_layer_norm
-            ).to(device)
-        elif self.feature_decoder_type == "graph":
-            from .graph_modules import GraphDecoder as GDecoder
-
-            self.decoder = GDecoder(
-                state_dim, hidden_dim, action_dim,
-                conv_layer_type=graph_type,
-                hidden_layers=graph_hidden_layers,
-                dropout=graph_dropout,
-                Cheb_k=graph_Cheb_k,
-                alpha=graph_alpha,
-                loss_type=loss_type,
-            ).to(device)
-        else:
-            raise ValueError(f"Unknown feature_decoder_type: {feature_decoder_type}")
-
-        # ----- Graph Structure Decoder (CCVGAE) -----
-        if use_graph_decoder:
-            from .graph_utils import GraphStructureDecoder
-
-            self.structure_decoder = GraphStructureDecoder(
-                structure_decoder=structure_decoder_type,
-                latent_dim=action_dim,
-                hidden_dim=decoder_hidden_dim,
-                threshold=graph_threshold,
-                sparse_threshold=graph_sparse_threshold,
-                symmetric=True,
-                add_self_loops=False,
-            ).to(device)
+        self.decoder = Decoder(
+            state_dim, hidden_dim, action_dim, loss_type, use_layer_norm
+        ).to(device)
 
         # ----- Information Bottleneck (Coupling) -----
         self.latent_encoder = nn.Linear(action_dim, i_dim).to(device)
@@ -406,28 +344,14 @@ class VAE(nn.Module, SDEMixin):
         z_tangent = F.pad(z_clipped, (1, 0), value=0)
         return exp_map_at_origin(z_tangent)
 
-    # ----- Decoder Wrapper -----
-    def _decode(self, z, edge_index=None, edge_weight=None):
-        """Unified decode handling both MLP and graph feature decoders."""
-        if self.feature_decoder_type == "graph":
-            if edge_index is None:
-                raise ValueError("edge_index required for graph feature decoder")
-            return self.decoder(z, edge_index, edge_weight, self.use_residual, z_for_dropout=z)
-        else:
-            return self.decoder(z)
-
     # ----- Forward -----
-    def forward(self, x, edge_index=None, edge_weight=None):
+    def forward(self, x):
         if self.use_sde:
-            return self._forward_sde(x, edge_index, edge_weight)
-        return self._forward_standard(x, edge_index, edge_weight)
+            return self._forward_sde(x)
+        return self._forward_standard(x)
 
-    def _forward_standard(self, x, edge_index=None, edge_weight=None):
-        # Encode
-        if self.encoder_type == "graph":
-            enc_out = self.encoder(x, edge_index, edge_weight, self.use_residual)
-        else:
-            enc_out = self.encoder(x)
+    def _forward_standard(self, x):
+        enc_out = self.encoder(x)
 
         q_z, q_m, q_s = enc_out[0], enc_out[1], enc_out[2]
         z_manifold = self._map_to_manifold(q_z)
@@ -444,38 +368,28 @@ class VAE(nn.Module, SDEMixin):
             ld_manifold = self._map_to_manifold(q_z2)
 
         # Decode
-        pred_x, dropout_x = self._decode(q_z, edge_index, edge_weight)
-        pred_xl, dropout_xl = self._decode(ld, edge_index, edge_weight)
-
-        # Optional graph structure decoder
-        pred_a = None
-        if self.use_graph_decoder:
-            pred_a, _, _ = self.structure_decoder(q_z, edge_index)
+        pred_x, dropout_x = self.decoder(q_z)
+        pred_xl, dropout_xl = self.decoder(ld)
 
         # Optional PDE
         if self.use_pde:
             q_z_pde = self.pde_solver(q_z)
-            pred_x_pde, dropout_x_pde = self._decode(q_z_pde, edge_index, edge_weight)
+            pred_x_pde, dropout_x_pde = self.decoder(q_z_pde)
             return ForwardOutput(
                 q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
                 pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
-                dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+                dropout_x=dropout_x, dropout_xl=dropout_xl,
                 q_z_pde=q_z_pde, pred_x_pde=pred_x_pde, dropout_x_pde=dropout_x_pde,
             )
 
         return ForwardOutput(
             q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
             pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
-            dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+            dropout_x=dropout_x, dropout_xl=dropout_xl,
         )
 
-    def _forward_sde(self, x, edge_index=None, edge_weight=None):
-        # Encode
-        if self.encoder_type == "graph":
-            enc_out = self.encoder(x, edge_index, edge_weight, self.use_residual)
-        else:
-            enc_out = self.encoder(x)
-
+    def _forward_sde(self, x):
+        enc_out = self.encoder(x)
         q_z, q_m, q_s, n, t = enc_out
 
         # Sort by pseudotime
@@ -510,23 +424,18 @@ class VAE(nn.Module, SDEMixin):
             ld_manifold = self._map_to_manifold(q_z2)
 
         # Decode all paths
-        pred_x, dropout_x = self._decode(q_z, edge_index, edge_weight)
-        pred_xl, dropout_xl = self._decode(ld, edge_index, edge_weight)
-        pred_x_sde, dropout_x_sde = self._decode(q_z_sde, edge_index, edge_weight)
-
-        # Optional graph structure decoder
-        pred_a = None
-        if self.use_graph_decoder:
-            pred_a, _, _ = self.structure_decoder(q_z, edge_index)
+        pred_x, dropout_x = self.decoder(q_z)
+        pred_xl, dropout_xl = self.decoder(ld)
+        pred_x_sde, dropout_x_sde = self.decoder(q_z_sde)
 
         # Optional PDE
         if self.use_pde:
             q_z_pde = self.pde_solver(q_z)
-            pred_x_pde, dropout_x_pde = self._decode(q_z_pde, edge_index, edge_weight)
+            pred_x_pde, dropout_x_pde = self.decoder(q_z_pde)
             return ForwardOutput(
                 q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
                 pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
-                dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+                dropout_x=dropout_x, dropout_xl=dropout_xl,
                 q_z_sde=q_z_sde, pred_x_sde=pred_x_sde, dropout_x_sde=dropout_x_sde,
                 x_sorted=x, t=t,
                 q_z_pde=q_z_pde, pred_x_pde=pred_x_pde, dropout_x_pde=dropout_x_pde,
@@ -535,7 +444,7 @@ class VAE(nn.Module, SDEMixin):
         return ForwardOutput(
             q_z=q_z, q_m=q_m, q_s=q_s, pred_x=pred_x, le=le, ld=ld,
             pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
-            dropout_x=dropout_x, dropout_xl=dropout_xl, pred_a=pred_a,
+            dropout_x=dropout_x, dropout_xl=dropout_xl,
             q_z_sde=q_z_sde, pred_x_sde=pred_x_sde, dropout_x_sde=dropout_x_sde,
             x_sorted=x, t=t,
         )

@@ -2,16 +2,14 @@
 HSDE: Hyperbolic SDE-Regularized VAE
 =======================================================================
 
-A unified deep learning framework for single-cell omics analysis combining:
+A deep learning framework for single-cell omics analysis combining:
 - Variational Autoencoder (VAE) for dimensionality reduction
 - Lorentz geometric regularization for hierarchical structure
 - Dual-path information bottleneck for coordinated biological programs
 - Neural SDE regularization for trajectory inference
+- Graph PDE diffusion for latent smoothing
 - Transformer-based attention mechanisms for long-range dependencies
 - Multiple count-based likelihood functions (NB, ZINB, Poisson, ZIP)
-- Graph neural network encoders (GAT, GCN, ChebConv, SAGE, etc.)
-- Graph structure decoders for adjacency learning
-- Subgraph-aware training for scalability
 
 Supports scRNA-seq and scATAC-seq modalities without architectural modification.
 """
@@ -36,21 +34,20 @@ class HSDE(Env, VectorFieldMixin):
     """
     HSDE: Hyperbolic SDE-Regularized VAE
 
-    A unified framework for single-cell omics analysis (scRNA-seq and scATAC-seq)
+    A framework for single-cell omics analysis (scRNA-seq and scATAC-seq)
     that learns low-dimensional representations while preserving both local
     cell-state structure and global hierarchical organization through Lorentz
-    geometric regularization, information bottleneck architecture, neural
-    SDE-based trajectory inference, and optional graph neural network encoders.
+    geometric regularization, information bottleneck architecture, and neural
+    SDE-based trajectory inference.
 
     Architecture Overview
     ---------------------
-    1. **Encoder**: MLP, Transformer, or Graph (GAT/GCN/etc.) backbone
+    1. **Encoder**: MLP or Transformer backbone
     2. **Information Bottleneck**: Optional compression layer for hierarchical features
     3. **Manifold Regularization**: Lorentz or Euclidean distance constraints
-    4. **Feature Decoder**: MLP or Graph decoder for expression reconstruction
-    5. **Structure Decoder** (optional): Adjacency reconstruction (CCVGAE-style)
-    6. **SDE Solver** (optional): Stochastic cell state trajectory modeling
-    7. **PDE Solver** (optional): Graph Laplacian latent diffusion
+    4. **Feature Decoder**: MLP decoder for expression reconstruction
+    5. **SDE Solver** (optional): Stochastic cell state trajectory modeling
+    6. **PDE Solver** (optional): Graph Laplacian latent diffusion
 
     Parameters
     ----------
@@ -121,7 +118,6 @@ class HSDE(Env, VectorFieldMixin):
         Encoder backbone:
         - 'mlp': Standard MLP with LayerNorm (default)
         - 'transformer': Multi-head attention encoder
-        - 'graph': Graph neural network encoder (requires torch_geometric)
 
     Transformer Parameters (encoder_type='transformer')
     ---------------------------------------------------
@@ -149,41 +145,6 @@ class HSDE(Env, VectorFieldMixin):
     pde_steps : int, default=2
     pde_tau : float, default=1.0
 
-    Graph Parameters (encoder_type='graph')
-    ----------------------------------------
-    graph_type : str, default='GAT'
-        Graph convolution type: 'GAT', 'GCN', 'Cheb', 'SAGE', 'SSG',
-        'Transformer', 'GIN', 'Linear', 'GeneralConv', 'FILM'
-    graph_hidden_layers : int, default=2
-    graph_dropout : float, default=0.05
-    graph_Cheb_k : int, default=1
-    graph_alpha : float, default=0.5
-    use_residual : bool, default=True
-    use_graph_decoder : bool, default=False
-        Enable adjacency reconstruction (structure decoder)
-    structure_decoder_type : str, default='mlp'
-        Structure decoder type: 'bilinear', 'inner_product', 'mlp'
-    decoder_hidden_dim : int, default=128
-    graph_threshold : float, default=0
-    graph_sparse_threshold : float, optional
-    w_adj : float, default=0.0
-        Weight for adjacency BCE loss
-    graph_loss_weight : float, default=1.0
-    n_neighbors : int, default=15
-        KNN neighbors for constructing cell-cell graph
-    n_var : int, optional
-        Number of highly variable genes to select
-    tech : str, default='PCA'
-        Decomposition method: 'PCA', 'NMF', 'ICA', 'FA'
-    batch_tech : str, optional
-        Batch correction method: 'harmony', 'scvi', or None
-    all_feat : bool, default=False
-        Whether to use all features or only HVGs
-    subgraph_size : int, default=512
-        Subgraph size for scalable graph training
-    num_subgraphs_per_epoch : int, default=10
-        Subgraphs sampled per epoch
-
     Examples
     --------
     >>> import scanpy as sc
@@ -200,14 +161,6 @@ class HSDE(Env, VectorFieldMixin):
     >>> # With Lorentz regularization and SDE trajectory inference
     >>> model = HSDE(adata, lorentz=5.0, use_sde=True, latent_dim=10, i_dim=2)
     >>> model.fit(epochs=400, patience=25)
-    >>>
-    >>> # Graph encoder (requires torch_geometric)
-    >>> model = HSDE(
-    ...     adata, encoder_type='graph', graph_type='GAT',
-    ...     use_graph_decoder=True, w_adj=0.1
-    ... )
-    >>> model.fit(epochs=200)
-    >>> centroids = model.get_centroid()  # CCVGAE-style centroid inference
     """
 
     def __init__(
@@ -242,9 +195,8 @@ class HSDE(Env, VectorFieldMixin):
         batch_size: int = 128,
         random_seed: int = 42,
         device: torch.device = None,
-        # Encoder/Decoder selection
+        # Encoder selection
         encoder_type: str = "mlp",
-        feature_decoder_type: str = "mlp",
         # Transformer
         attn_embed_dim: int = 64,
         attn_num_heads: int = 4,
@@ -263,28 +215,6 @@ class HSDE(Env, VectorFieldMixin):
         pde_alpha: float = 0.1,
         pde_steps: int = 2,
         pde_tau: float = 1.0,
-        # Graph (CCVGAE)
-        graph_type: str = "GAT",
-        graph_hidden_layers: int = 2,
-        graph_dropout: float = 0.05,
-        graph_Cheb_k: int = 1,
-        graph_alpha: float = 0.5,
-        use_residual: bool = True,
-        use_graph_decoder: bool = False,
-        structure_decoder_type: str = "mlp",
-        decoder_hidden_dim: int = 128,
-        graph_threshold: float = 0,
-        graph_sparse_threshold: Optional[float] = None,
-        w_adj: float = 0.0,
-        graph_loss_weight: float = 1.0,
-        # Graph data construction
-        n_neighbors: int = 15,
-        n_var: Optional[int] = None,
-        tech: str = "PCA",
-        batch_tech: Optional[str] = None,
-        all_feat: bool = False,
-        subgraph_size: int = 512,
-        num_subgraphs_per_epoch: int = 10,
     ):
         # Auto-detect device
         if device is None:
@@ -311,7 +241,7 @@ class HSDE(Env, VectorFieldMixin):
 
         # Validate enum-like parameters
         _VALID_LOSS = {"nb", "zinb", "poisson", "zip"}
-        _VALID_ENCODER = {"mlp", "transformer", "graph"}
+        _VALID_ENCODER = {"mlp", "transformer"}
         if loss_type not in _VALID_LOSS:
             raise ValueError(f"loss_type={loss_type!r} not in {_VALID_LOSS}")
         if encoder_type not in _VALID_ENCODER:
@@ -356,7 +286,6 @@ class HSDE(Env, VectorFieldMixin):
             random_seed=random_seed,
             device=device,
             encoder_type=encoder_type,
-            feature_decoder_type=feature_decoder_type,
             attn_embed_dim=attn_embed_dim,
             attn_num_heads=attn_num_heads,
             attn_num_layers=attn_num_layers,
@@ -372,26 +301,6 @@ class HSDE(Env, VectorFieldMixin):
             pde_alpha=pde_alpha,
             pde_steps=pde_steps,
             pde_tau=pde_tau,
-            graph_type=graph_type,
-            graph_hidden_layers=graph_hidden_layers,
-            graph_dropout=graph_dropout,
-            graph_Cheb_k=graph_Cheb_k,
-            graph_alpha=graph_alpha,
-            use_residual=use_residual,
-            use_graph_decoder=use_graph_decoder,
-            structure_decoder_type=structure_decoder_type,
-            decoder_hidden_dim=decoder_hidden_dim,
-            graph_threshold=graph_threshold,
-            graph_sparse_threshold=graph_sparse_threshold,
-            w_adj=w_adj,
-            graph_loss_weight=graph_loss_weight,
-            n_neighbors=n_neighbors,
-            n_var=n_var,
-            tech=tech,
-            batch_tech=batch_tech,
-            all_feat=all_feat,
-            subgraph_size=subgraph_size,
-            num_subgraphs_per_epoch=num_subgraphs_per_epoch,
         )
 
         # Resource tracking
@@ -517,28 +426,7 @@ class HSDE(Env, VectorFieldMixin):
         -------
         latent : ndarray of shape (n_cells, latent_dim)
         """
-        return self.take_latent(
-            self.X_norm,
-            edge_index=self.edge_index,
-            edge_weight=self.edge_weight,
-        )
-
-    def get_centroid(self):
-        """
-        Extract centroid (deterministic mean) for all cells (graph encoder only).
-
-        This returns the q_m output from the graph encoder, which is the
-        centroid-based representation from CCVGAE's coupling mechanism.
-
-        Returns
-        -------
-        centroid : ndarray of shape (n_cells, latent_dim)
-        """
-        return self.take_centroid(
-            self.X_norm,
-            edge_index=self.edge_index,
-            edge_weight=self.edge_weight,
-        )
+        return self.take_latent(self.X_norm)
 
     def get_time(self):
         """
@@ -548,11 +436,7 @@ class HSDE(Env, VectorFieldMixin):
         -------
         pseudotime : ndarray of shape (n_cells,)
         """
-        return self.take_time(
-            self.X_norm,
-            edge_index=self.edge_index,
-            edge_weight=self.edge_weight,
-        )
+        return self.take_time(self.X_norm)
 
     def get_transition(self):
         """
@@ -562,11 +446,7 @@ class HSDE(Env, VectorFieldMixin):
         -------
         transition : ndarray of shape (n_cells, n_cells)
         """
-        return self.take_transition(
-            self.X_norm,
-            edge_index=self.edge_index,
-            edge_weight=self.edge_weight,
-        )
+        return self.take_transition(self.X_norm)
 
     def get_test_latent(self):
         """
@@ -576,11 +456,7 @@ class HSDE(Env, VectorFieldMixin):
         -------
         latent : ndarray of shape (n_test, latent_dim)
         """
-        return self.take_latent(
-            self.X_test_norm,
-            edge_index=self.edge_index,
-            edge_weight=self.edge_weight,
-        )
+        return self.take_latent(self.X_test_norm)
 
     def get_pde_latent(self):
         """
@@ -590,11 +466,7 @@ class HSDE(Env, VectorFieldMixin):
         -------
         latent_pde : ndarray of shape (n_cells, latent_dim)
         """
-        return self.take_pde_latent(
-            self.X_norm,
-            edge_index=self.edge_index,
-            edge_weight=self.edge_weight,
-        )
+        return self.take_pde_latent(self.X_norm)
 
     def get_bottleneck(self):
         """
@@ -606,12 +478,7 @@ class HSDE(Env, VectorFieldMixin):
         """
         x = torch.tensor(self.X_norm, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            if self.encoder_type == "graph":
-                ei = torch.LongTensor(self.edge_index).to(self.device) if self.edge_index is not None else None
-                ew = torch.FloatTensor(self.edge_weight).to(self.device) if self.edge_weight is not None else None
-                outputs = self.nn(x, edge_index=ei, edge_weight=ew)
-            else:
-                outputs = self.nn(x)
+            outputs = self.nn(x)
             le = outputs.le  # Information bottleneck encoding
         return le.cpu().numpy()
 
@@ -639,8 +506,6 @@ class HSDE(Env, VectorFieldMixin):
             f"n_genes={self.n_var}",
             f"params={n_params:,}",
         ]
-        if self.encoder_type == "graph":
-            parts.append(f"graph={self.nn.encoder.conv_type}")
         if self.nn.use_sde:
             parts.append("sde=True")
         if self.nn.use_pde:
@@ -648,15 +513,9 @@ class HSDE(Env, VectorFieldMixin):
         return ", ".join(parts) + ")"
 
     def summary_dict(self):
-        """Return a dictionary of the model configuration.
-
-        Returns
-        -------
-        config : dict
-            Dictionary with model configuration keys.
-        """
+        """Return a dictionary of the model configuration."""
         n_params = sum(p.numel() for p in self.nn.parameters())
-        d = {
+        return {
             "encoder_type": self.encoder_type,
             "parameters": n_params,
             "latent_dim": self.nn.latent_dim,
@@ -668,11 +527,6 @@ class HSDE(Env, VectorFieldMixin):
             "use_sde": self.nn.use_sde,
             "use_pde": self.nn.use_pde,
         }
-        if self.encoder_type == "graph":
-            d["graph_type"] = self.nn.encoder.conv_type
-            d["graph_decoder"] = self.nn.use_graph_decoder
-            d["n_edges"] = len(self.edge_weight) if self.edge_weight is not None else 0
-        return d
 
     def summary(self):
         """Print a summary of the model configuration."""

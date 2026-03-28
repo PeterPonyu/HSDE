@@ -2,11 +2,11 @@
 # model.py - Core Model: Loss Computation, Optimization, Latent Extraction
 # ============================================================================
 """
-Unified HSDE + CCVGAE model combining:
-- Multi-objective loss (recon, KL, geometric, SDE, PDE, graph adjacency)
+HSDE model combining:
+- Multi-objective loss (recon, KL, geometric, SDE, PDE)
 - Count-based likelihoods (NB, ZINB, Poisson, ZIP)
-- Support for MLP / Transformer / Graph encoders
-- Gradient descent with optional graph structure learning
+- Support for MLP / Transformer encoders
+- Gradient descent with mixed precision
 """
 
 import torch
@@ -17,17 +17,17 @@ import math
 import warnings
 from typing import Optional
 from sklearn.metrics.pairwise import pairwise_distances
-from .mixin import scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin
+from .mixin import scviMixin, dipMixin, betatcMixin, infoMixin
 from .module import VAE
 from .utils import lorentz_distance
 
 
-class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
+class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
     """
-    Core model merging HSDE + CCVGAE loss objectives.
+    Core model with multi-objective loss.
 
-    Supports all three encoder types (mlp, transformer, graph) and optional
-    graph structure reconstruction loss from CCVGAE.
+    Supports MLP and Transformer encoder types with optional
+    SDE trajectory inference and PDE latent diffusion.
     """
 
     def __init__(
@@ -55,22 +55,6 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         sde_hidden_dim=None, sde_solver_method="euler", sde_step_size=None,
         # PDE
         pde_k=15, pde_alpha=0.1, pde_steps=2, pde_tau=1.0,
-        # Graph (CCVGAE)
-        graph_type="GAT",
-        graph_hidden_layers=2,
-        graph_dropout=0.05,
-        graph_Cheb_k=1,
-        graph_alpha=0.5,
-        use_residual=True,
-        use_graph_decoder=False,
-        structure_decoder_type="mlp",
-        decoder_hidden_dim=128,
-        graph_threshold=0,
-        graph_sparse_threshold=None,
-        feature_decoder_type="mlp",
-        # Graph loss weights (CCVGAE)
-        w_adj=0.0,
-        graph_loss_weight=1.0,
         **kwargs,
     ):
         self.recon = recon
@@ -90,9 +74,6 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         self.pde_reg = pde_reg
         self.device = device
         self.encoder_type = encoder_type.lower()
-        self.use_graph_decoder = use_graph_decoder
-        self.w_adj = w_adj
-        self.graph_loss_weight = graph_loss_weight
         self._nan_skip_count = 0
 
         self.nn = VAE(
@@ -119,26 +100,12 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             pde_alpha=pde_alpha,
             pde_steps=pde_steps,
             pde_tau=pde_tau,
-            graph_type=graph_type,
-            graph_hidden_layers=graph_hidden_layers,
-            graph_dropout=graph_dropout,
-            graph_Cheb_k=graph_Cheb_k,
-            graph_alpha=graph_alpha,
-            use_residual=use_residual,
-            use_graph_decoder=use_graph_decoder,
-            structure_decoder_type=structure_decoder_type,
-            decoder_hidden_dim=decoder_hidden_dim,
-            graph_threshold=graph_threshold,
-            graph_sparse_threshold=graph_sparse_threshold,
-            feature_decoder_type=feature_decoder_type,
         )
 
         # AMP: enable mixed precision on CUDA for ~2x throughput
         self._use_amp = (device is not None and "cuda" in str(device))
 
-        # Fused Adam: runs the entire optimizer step in a single CUDA kernel,
-        # eliminating ~700 per-parameter .item() GPU→CPU syncs per step.
-        # Requires CUDA and AMP (fused Adam only works with float32/float16 on CUDA).
+        # Fused Adam: runs the entire optimizer step in a single CUDA kernel
         self.nn_optimizer = optim.Adam(
             self.nn.parameters(), lr=lr, fused=self._use_amp,
         )
@@ -168,43 +135,17 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             raise ValueError(f"Unknown loss_type: {self.loss_type}")
 
     # ========================================================================
-    # Adjacency loss (CCVGAE)
-    # ========================================================================
-
-    def _compute_adj_loss(self, pred_a, edge_index, num_nodes, edge_weight=None):
-        """Binary cross-entropy adjacency reconstruction (from CCVGAE)."""
-        if pred_a is None:
-            return torch.tensor(0.0, device=self.device)
-        adj = self._build_adj(edge_index, num_nodes, edge_weight).to_dense()
-        return self.graph_loss_weight * F.binary_cross_entropy_with_logits(pred_a, adj)
-
-    # ========================================================================
     # Latent extraction
     # ========================================================================
 
     @torch.no_grad()
-    def take_latent(self, state, edge_index=None, edge_weight=None):
+    def take_latent(self, state):
         if not isinstance(state, torch.Tensor):
             state = torch.as_tensor(state, dtype=torch.float32)
         state = state.to(self.device, non_blocking=True)
-        if edge_index is not None:
-            if not isinstance(edge_index, torch.Tensor):
-                edge_index = torch.as_tensor(edge_index, dtype=torch.long)
-            ei = edge_index.to(self.device, non_blocking=True)
-        else:
-            ei = None
-        if edge_weight is not None:
-            if not isinstance(edge_weight, torch.Tensor):
-                edge_weight = torch.as_tensor(edge_weight, dtype=torch.float32)
-            ew = edge_weight.to(self.device, non_blocking=True)
-        else:
-            ew = None
 
         if self.use_sde:
-            if self.encoder_type == "graph":
-                enc_out = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-            else:
-                enc_out = self.nn.encoder(state)
+            enc_out = self.nn.encoder(state)
             q_z, q_m, q_s, n, t = enc_out
 
             t_cpu = t.cpu().numpy()
@@ -223,70 +164,35 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             combined = self.vae_reg * q_z + self.sde_reg * q_z_sde
             return combined.cpu().numpy()
         else:
-            if self.encoder_type == "graph":
-                enc_out = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-            else:
-                enc_out = self.nn.encoder(state)
+            enc_out = self.nn.encoder(state)
             q_z = enc_out[0]
             return q_z.cpu().numpy()
 
     @torch.no_grad()
-    def take_centroid(self, state, edge_index=None, edge_weight=None):
-        """Extract deterministic posterior mean (CCVGAE Centroid Inference)."""
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
-
-        if self.encoder_type == "graph":
-            enc_out = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-        else:
-            enc_out = self.nn.encoder(state)
-        q_m = enc_out[1]
-        return q_m.cpu().numpy()
-
-    @torch.no_grad()
-    def take_time(self, state, edge_index=None, edge_weight=None):
+    def take_time(self, state):
         if not self.use_sde:
             raise ValueError("take_time() requires use_sde=True")
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
-
-        if self.encoder_type == "graph":
-            output = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-        else:
-            output = self.nn.encoder(state)
+        output = self.nn.encoder(state)
         t = output[-1]
         return t.cpu().numpy()
 
     @torch.no_grad()
-    def take_grad(self, state, edge_index=None, edge_weight=None):
+    def take_grad(self, state):
         if not self.use_sde:
             raise ValueError("take_grad() requires use_sde=True")
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
-
-        if self.encoder_type == "graph":
-            enc_out = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-        else:
-            enc_out = self.nn.encoder(state)
+        enc_out = self.nn.encoder(state)
         q_z, _, _, _, t = enc_out
         drift = self.nn.sde_solver.f(t, q_z)
         return drift.cpu().numpy()
 
     @torch.no_grad()
-    def take_transition(self, state, edge_index=None, edge_weight=None, top_k=30):
+    def take_transition(self, state, top_k=30):
         if not self.use_sde:
             raise ValueError("take_transition() requires use_sde=True")
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
-
-        if self.encoder_type == "graph":
-            enc_out = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-        else:
-            enc_out = self.nn.encoder(state)
+        enc_out = self.nn.encoder(state)
         q_z, _, _, _, t = enc_out
 
         drift = self.nn.sde_solver.f(t, q_z).cpu().numpy()
@@ -308,18 +214,11 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         return sparse_trans
 
     @torch.no_grad()
-    def take_pde_latent(self, state, edge_index=None, edge_weight=None):
+    def take_pde_latent(self, state):
         if not self.use_pde:
             raise ValueError("take_pde_latent() requires use_pde=True")
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        ei = torch.tensor(edge_index, dtype=torch.long).to(self.device) if edge_index is not None else None
-        ew = torch.tensor(edge_weight, dtype=torch.float32).to(self.device) if edge_weight is not None else None
-
-        if self.encoder_type == "graph":
-            enc_out = self.nn.encoder(state, ei, ew, self.nn.use_residual)
-        else:
-            enc_out = self.nn.encoder(state)
-
+        enc_out = self.nn.encoder(state)
         q_z = enc_out[0]
         q_z_pde = self.nn.pde_solver(q_z)
         return q_z_pde.cpu().numpy()
@@ -347,37 +246,23 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
     # Training update step
     # ========================================================================
 
-    def update(self, states_norm, states_raw, edge_index=None, edge_weight=None):
+    def update(self, states_norm, states_raw):
         """One gradient descent step with full multi-objective loss."""
-        # Accept both numpy arrays and torch tensors to avoid unnecessary copies
         if not isinstance(states_norm, torch.Tensor):
             states_norm = torch.as_tensor(states_norm, dtype=torch.float32)
         states_norm = states_norm.to(self.device, non_blocking=True)
         if not isinstance(states_raw, torch.Tensor):
             states_raw = torch.as_tensor(states_raw, dtype=torch.float32)
         states_raw = states_raw.to(self.device, non_blocking=True)
-        if edge_index is not None:
-            if not isinstance(edge_index, torch.Tensor):
-                edge_index = torch.as_tensor(edge_index, dtype=torch.long)
-            ei = edge_index.to(self.device, non_blocking=True)
-        else:
-            ei = None
-        if edge_weight is not None:
-            if not isinstance(edge_weight, torch.Tensor):
-                edge_weight = torch.as_tensor(edge_weight, dtype=torch.float32)
-            ew = edge_weight.to(self.device, non_blocking=True)
-        else:
-            ew = None
 
         with torch.amp.autocast("cuda", enabled=self._use_amp):
-            outputs = self.nn(states_norm, ei, ew)
+            outputs = self.nn(states_norm)
 
             # Access outputs via named attributes (ForwardOutput dataclass)
             q_z, q_m, q_s = outputs.q_z, outputs.q_m, outputs.q_s
             pred_x, dropout_x = outputs.pred_x, outputs.dropout_x
             le, ld, pred_xl, dropout_xl = outputs.le, outputs.ld, outputs.pred_xl, outputs.dropout_xl
             z_manifold, ld_manifold = outputs.z_manifold, outputs.ld_manifold
-            pred_a = outputs.pred_a
 
             if self.use_sde:
                 qz_div = F.mse_loss(q_z, outputs.q_z_sde, reduction="none").sum(-1).mean()
@@ -403,7 +288,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             if self.irecon > 0:
                 irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
 
-            # Geometric (manifold) loss — skip NaN manifold outputs without sync
+            # Geometric (manifold) loss
             geometric_loss = torch.tensor(0.0, device=self.device)
             if self.lorentz > 0:
                 if self.use_euclidean_manifold:
@@ -411,10 +296,9 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
                     dist = euclidean_distance(z_manifold, ld_manifold)
                 else:
                     dist = lorentz_distance(z_manifold, ld_manifold)
-                # NaN dist → NaN geometric_loss → caught by total_loss check below
                 geometric_loss = self.lorentz * dist.mean()
 
-            # KL divergence (NaN in q_m/q_s propagates to total_loss check below)
+            # KL divergence
             kl_div = self.beta * self._normal_kl(
                 q_m, q_s, torch.zeros_like(q_m), torch.zeros_like(q_s)
             ).sum(dim=-1).mean()
@@ -424,12 +308,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
             tc_loss = self.tc * self._betatc_compute_total_correlation(q_z, q_m, q_s) if self.tc > 0 else torch.tensor(0.0, device=self.device)
             mmd_loss = self.info * self._compute_mmd(q_z, torch.randn_like(q_z)) if self.info > 0 else torch.tensor(0.0, device=self.device)
 
-            # Graph adjacency loss (CCVGAE)
-            adj_loss = torch.tensor(0.0, device=self.device)
-            if self.use_graph_decoder and self.w_adj > 0 and pred_a is not None and ei is not None:
-                adj_loss = self.w_adj * self._compute_adj_loss(pred_a, ei, states_norm.size(0), ew)
-
-            total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss + adj_loss
+            total_loss = recon_loss + irecon_loss + geometric_loss + qz_div + kl_div + dip_loss + tc_loss + mmd_loss
 
         # Single GPU→CPU sync: get total_loss value, then check NaN/Inf on CPU
         total_val = total_loss.item()
@@ -452,5 +331,5 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin, adjMixin):
         self.loss.append((
             total_val, recon_loss.detach(), irecon_loss.detach(),
             geometric_loss.detach(), qz_div.detach(), kl_div.detach(),
-            dip_loss.detach(), tc_loss.detach(), mmd_loss.detach(), adj_loss.detach(),
+            dip_loss.detach(), tc_loss.detach(), mmd_loss.detach(),
         ))

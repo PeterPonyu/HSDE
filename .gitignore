@@ -78,8 +78,6 @@ data/
 # Results
 results/
 HSDE_results/
-benchmark_results/
-figures/
 *.csv
 *.json
 *.png

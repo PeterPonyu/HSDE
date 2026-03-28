@@ -1,15 +1,16 @@
 """
-HSDE Core: Unified Single-Cell Omics Analysis Framework
-========================================================
+HSDE Core: Hyperbolic SDE-Regularized VAE Framework
+====================================================
 
 Integrates:
-- HSDE: Hyperbolic SDE-Regularized VAE with Lorentz geometry, neural SDE
-  trajectory inference, PDE graph diffusion, and count-based likelihoods.
-- CCVGAE: Graph Attention Network encoders/decoders, graph structure learning,
-  subgraph sampling, and centroid inference.
+- VAE with count-based likelihoods (NB, ZINB, Poisson, ZIP)
+- Lorentz (hyperbolic) and Euclidean manifold regularization
+- Dual-path information bottleneck
+- Neural SDE trajectory inference
+- Graph PDE latent diffusion
 
-Encoder options: 'mlp', 'transformer', 'graph' (GAT, GCN, ChebConv, SAGE, etc.)
-Decoder options: 'mlp' (with NB/ZINB/Poisson/ZIP likelihoods), 'graph'
+Encoder options: 'mlp', 'transformer'
+Decoder: MLP with NB/ZINB/Poisson/ZIP likelihoods
 Regularization: beta-VAE, DIP-VAE, beta-TC-VAE, InfoVAE, Lorentz/Euclidean manifold
 Dynamics: Neural SDE trajectory inference, Graph PDE diffusion
 """
