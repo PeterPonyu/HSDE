@@ -48,6 +48,7 @@ class ForwardOutput:
     pred_x_sde: Optional[torch.Tensor] = None
     dropout_x_sde: Optional[torch.Tensor] = None
     x_sorted: Optional[torch.Tensor] = None
+    x_raw_sorted: Optional[torch.Tensor] = None
     t: Optional[torch.Tensor] = None
     # PDE-specific (None when not using PDE)
     q_z_pde: Optional[torch.Tensor] = None
@@ -249,6 +250,10 @@ class VAE(nn.Module, SDEMixin):
     - Neural SDE for continuous dynamics
     - Graph PDE diffusion for latent smoothing
     - Count-based likelihoods (NB, ZINB, Poisson, ZIP)
+
+    Architectural ablation flags (use_bottleneck, use_manifold) control
+    whether sub-modules are *built*, not just whether their loss weight
+    is zero.  This saves parameters, memory, and forward-pass compute.
     """
 
     def __init__(
@@ -264,6 +269,9 @@ class VAE(nn.Module, SDEMixin):
         use_sde: bool = False,
         use_pde: bool = False,
         device: torch.device = None,
+        # Architectural ablation flags
+        use_bottleneck: bool = True,
+        use_manifold: bool = True,
         # Encoder type selection
         encoder_type: str = "mlp",
         # Transformer params
@@ -292,6 +300,8 @@ class VAE(nn.Module, SDEMixin):
         self.use_euclidean_manifold = use_euclidean_manifold
         self.use_sde = use_sde
         self.use_pde = use_pde
+        self.use_bottleneck = use_bottleneck
+        self.use_manifold = use_manifold
         self.sde_solver_method = sde_solver_method
         self.sde_step_size = sde_step_size
         self.latent_dim = action_dim
@@ -317,8 +327,10 @@ class VAE(nn.Module, SDEMixin):
         ).to(device)
 
         # ----- Information Bottleneck (Coupling) -----
-        self.latent_encoder = nn.Linear(action_dim, i_dim).to(device)
-        self.latent_decoder = nn.Linear(i_dim, action_dim).to(device)
+        # Only allocate bottleneck layers when ablation flag is on.
+        if use_bottleneck:
+            self.latent_encoder = nn.Linear(action_dim, i_dim).to(device)
+            self.latent_decoder = nn.Linear(i_dim, action_dim).to(device)
 
         # ----- SDE Solver -----
         if use_sde:
@@ -345,33 +357,44 @@ class VAE(nn.Module, SDEMixin):
         return exp_map_at_origin(z_tangent)
 
     # ----- Forward -----
-    def forward(self, x):
+    def forward(self, x, x_raw=None):
         if self.use_sde:
-            return self._forward_sde(x)
+            return self._forward_sde(x, x_raw=x_raw)
         return self._forward_standard(x)
 
     def _forward_standard(self, x):
         enc_out = self.encoder(x)
 
         q_z, q_m, q_s = enc_out[0], enc_out[1], enc_out[2]
-        z_manifold = self._map_to_manifold(q_z)
 
-        # Bottleneck (coupling)
-        le = self.latent_encoder(q_z)
-        ld = self.latent_decoder(le)
-
-        if self.use_bottleneck_lorentz:
-            ld_manifold = self._map_to_manifold(ld)
+        # Manifold mapping — skipped entirely when disabled
+        if self.use_manifold:
+            z_manifold = self._map_to_manifold(q_z)
         else:
-            n = enc_out[3]
-            q_z2 = n.sample()
-            ld_manifold = self._map_to_manifold(q_z2)
+            z_manifold = q_z  # placeholder, not used in loss
 
-        # Decode
+        # Bottleneck (coupling) — skipped entirely when disabled
+        if self.use_bottleneck:
+            le = self.latent_encoder(q_z)
+            ld = self.latent_decoder(le)
+            pred_xl, dropout_xl = self.decoder(ld)
+            if self.use_manifold and self.use_bottleneck_lorentz:
+                ld_manifold = self._map_to_manifold(ld)
+            elif self.use_manifold:
+                n = enc_out[3]
+                q_z2 = n.sample()
+                ld_manifold = self._map_to_manifold(q_z2)
+            else:
+                ld_manifold = ld
+        else:
+            le = ld = q_z  # identity placeholders
+            pred_xl = dropout_xl = None
+            ld_manifold = z_manifold
+
+        # Decode primary path
         pred_x, dropout_x = self.decoder(q_z)
-        pred_xl, dropout_xl = self.decoder(ld)
 
-        # Optional PDE
+        # Optional PDE — detach kNN graph construction from encoder gradients
         if self.use_pde:
             q_z_pde = self.pde_solver(q_z)
             pred_x_pde, dropout_x_pde = self.decoder(q_z_pde)
@@ -388,13 +411,15 @@ class VAE(nn.Module, SDEMixin):
             dropout_x=dropout_x, dropout_xl=dropout_xl,
         )
 
-    def _forward_sde(self, x):
+    def _forward_sde(self, x, x_raw=None):
         enc_out = self.encoder(x)
         q_z, q_m, q_s, n, t = enc_out
 
         # Sort by pseudotime
         idxs = t.argsort()
         t, q_z, q_m, q_s, x = t[idxs], q_z[idxs], q_m[idxs], q_s[idxs], x[idxs]
+        if x_raw is not None:
+            x_raw = x_raw[idxs]
 
         # Remove duplicate time points
         if len(t) > 1:
@@ -403,6 +428,8 @@ class VAE(nn.Module, SDEMixin):
                 t[unique_mask], q_z[unique_mask], q_m[unique_mask],
                 q_s[unique_mask], x[unique_mask],
             )
+            if x_raw is not None:
+                x_raw = x_raw[unique_mask]
 
         # Solve SDE
         z0 = q_z[0].unsqueeze(0)
@@ -412,23 +439,34 @@ class VAE(nn.Module, SDEMixin):
             step_size=self.sde_step_size,
         ).squeeze(1)
 
-        # Manifold mappings
-        z_manifold = self._map_to_manifold(q_z)
-        le = self.latent_encoder(q_z)
-        ld = self.latent_decoder(le)
-
-        if self.use_bottleneck_lorentz:
-            ld_manifold = self._map_to_manifold(ld)
+        # Manifold mappings — skipped when disabled
+        if self.use_manifold:
+            z_manifold = self._map_to_manifold(q_z)
         else:
-            q_z2 = n.sample()
-            ld_manifold = self._map_to_manifold(q_z2)
+            z_manifold = q_z
+
+        # Bottleneck — skipped when disabled
+        if self.use_bottleneck:
+            le = self.latent_encoder(q_z)
+            ld = self.latent_decoder(le)
+            pred_xl, dropout_xl = self.decoder(ld)
+            if self.use_manifold and self.use_bottleneck_lorentz:
+                ld_manifold = self._map_to_manifold(ld)
+            elif self.use_manifold:
+                q_z2 = n.sample()
+                ld_manifold = self._map_to_manifold(q_z2)
+            else:
+                ld_manifold = ld
+        else:
+            le = ld = q_z
+            pred_xl = dropout_xl = None
+            ld_manifold = z_manifold
 
         # Decode all paths
         pred_x, dropout_x = self.decoder(q_z)
-        pred_xl, dropout_xl = self.decoder(ld)
         pred_x_sde, dropout_x_sde = self.decoder(q_z_sde)
 
-        # Optional PDE
+        # Optional PDE — detach kNN graph from encoder gradients
         if self.use_pde:
             q_z_pde = self.pde_solver(q_z)
             pred_x_pde, dropout_x_pde = self.decoder(q_z_pde)
@@ -437,7 +475,7 @@ class VAE(nn.Module, SDEMixin):
                 pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
                 dropout_x=dropout_x, dropout_xl=dropout_xl,
                 q_z_sde=q_z_sde, pred_x_sde=pred_x_sde, dropout_x_sde=dropout_x_sde,
-                x_sorted=x, t=t,
+                x_sorted=x, t=t, x_raw_sorted=x_raw,
                 q_z_pde=q_z_pde, pred_x_pde=pred_x_pde, dropout_x_pde=dropout_x_pde,
             )
 
@@ -446,5 +484,5 @@ class VAE(nn.Module, SDEMixin):
             pred_xl=pred_xl, z_manifold=z_manifold, ld_manifold=ld_manifold,
             dropout_x=dropout_x, dropout_xl=dropout_xl,
             q_z_sde=q_z_sde, pred_x_sde=pred_x_sde, dropout_x_sde=dropout_x_sde,
-            x_sorted=x, t=t,
+            x_sorted=x, t=t, x_raw_sorted=x_raw,
         )

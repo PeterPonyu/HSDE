@@ -48,7 +48,9 @@ class GraphDiffusionPDE(nn.Module):
         if z.ndim != 2:
             raise ValueError(f"Expected 2D latent tensor, got shape={tuple(z.shape)}")
 
-        knn_idx, weights = self._knn_weights(z)
+        # Detach kNN graph construction from encoder gradients:
+        # the graph topology should not influence encoder updates.
+        knn_idx, weights = self._knn_weights(z.detach())
         if knn_idx is None:
             return z
 

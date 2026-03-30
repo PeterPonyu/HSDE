@@ -415,5 +415,61 @@ class TestParameterValidation:
                  encoder_type="graph")
 
 
+# ---------------------------------------------------------------------------
+# Test: Architectural ablation (bottleneck/manifold skipped at build time)
+# ---------------------------------------------------------------------------
+
+class TestArchitecturalAblation:
+    """Verify that setting irecon=0 / lorentz=0 actually removes sub-modules."""
+
+    def test_no_bottleneck_when_irecon_zero(self, synthetic_adata, device):
+        from hsde import HSDE
+        model = HSDE(synthetic_adata, layer="counts", device=device,
+                     hidden_dim=64, latent_dim=8, i_dim=2,
+                     irecon=0.0, lorentz=0.0)
+        assert not model.nn.use_bottleneck
+        assert not hasattr(model.nn, "latent_encoder")
+
+    def test_bottleneck_present_when_irecon_positive(self, synthetic_adata, device):
+        from hsde import HSDE
+        model = HSDE(synthetic_adata, layer="counts", device=device,
+                     hidden_dim=64, latent_dim=8, i_dim=2,
+                     irecon=1.0, lorentz=0.0)
+        assert model.nn.use_bottleneck
+        assert hasattr(model.nn, "latent_encoder")
+
+    def test_no_manifold_when_lorentz_zero(self, synthetic_adata, device):
+        from hsde import HSDE
+        model = HSDE(synthetic_adata, layer="counts", device=device,
+                     hidden_dim=64, latent_dim=8, i_dim=2,
+                     lorentz=0.0)
+        assert not model.nn.use_manifold
+
+    def test_bottleneck_via_lorentz(self, synthetic_adata, device):
+        """Bottleneck should be built when lorentz > 0 with use_bottleneck_lorentz."""
+        from hsde import HSDE
+        model = HSDE(synthetic_adata, layer="counts", device=device,
+                     hidden_dim=64, latent_dim=8, i_dim=2,
+                     irecon=0.0, lorentz=5.0, use_bottleneck_lorentz=True)
+        assert model.nn.use_bottleneck
+
+    def test_ablated_model_trains(self, synthetic_adata, device):
+        """Pure VAE (no bottleneck, no manifold) should train and converge."""
+        model, latent = _train_and_check(
+            synthetic_adata, device, epochs=30,
+            recon=1.0, irecon=0.0, lorentz=0.0, beta=1.0,
+        )
+        assert latent.shape == (300, 8)
+
+    def test_get_bottleneck_raises_when_not_built(self, synthetic_adata, device):
+        from hsde import HSDE
+        model = HSDE(synthetic_adata, layer="counts", device=device,
+                     hidden_dim=64, latent_dim=8, i_dim=2,
+                     irecon=0.0, lorentz=0.0)
+        model.fit(epochs=5, early_stop=False, compute_metrics=False)
+        with pytest.raises(RuntimeError, match="Bottleneck was not built"):
+            model.get_bottleneck()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x"])

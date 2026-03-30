@@ -76,6 +76,13 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
         self.encoder_type = encoder_type.lower()
         self._nan_skip_count = 0
 
+        # Architectural ablation: derive from loss weights.
+        # Bottleneck is only built when irecon > 0 (used) or lorentz > 0
+        # with use_bottleneck_lorentz (manifold measured on bottleneck).
+        use_bottleneck = (irecon > 0) or (lorentz > 0 and use_bottleneck_lorentz)
+        # Manifold module is only needed when lorentz > 0.
+        use_manifold = (lorentz > 0)
+
         self.nn = VAE(
             state_dim, hidden_dim, latent_dim, i_dim,
             use_bottleneck_lorentz=use_bottleneck_lorentz,
@@ -85,6 +92,8 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
             use_sde=use_sde,
             use_pde=use_pde,
             device=device,
+            use_bottleneck=use_bottleneck,
+            use_manifold=use_manifold,
             encoder_type=encoder_type,
             attn_embed_dim=attn_embed_dim,
             attn_num_heads=attn_num_heads,
@@ -256,7 +265,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
         states_raw = states_raw.to(self.device, non_blocking=True)
 
         with torch.amp.autocast("cuda", enabled=self._use_amp):
-            outputs = self.nn(states_norm)
+            outputs = self.nn(states_norm, x_raw=states_raw)
 
             # Access outputs via named attributes (ForwardOutput dataclass)
             q_z, q_m, q_s = outputs.q_z, outputs.q_m, outputs.q_s
@@ -266,7 +275,8 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
 
             if self.use_sde:
                 qz_div = F.mse_loss(q_z, outputs.q_z_sde, reduction="none").sum(-1).mean()
-                target_raw = outputs.x_sorted  # SDE reorders input
+                # Use the properly reordered raw counts for SDE reconstruction
+                target_raw = outputs.x_raw_sorted if outputs.x_raw_sorted is not None else outputs.x_sorted
 
                 recon_loss = self.recon * self._compute_reconstruction_loss(target_raw, pred_x, dropout_x)
                 recon_loss += self.recon * self._compute_reconstruction_loss(
@@ -284,13 +294,14 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
                     target_raw, outputs.pred_x_pde, outputs.dropout_x_pde
                 )
 
+            # Bottleneck reconstruction loss — only when bottleneck is active
             irecon_loss = torch.tensor(0.0, device=self.device)
-            if self.irecon > 0:
+            if self.irecon > 0 and self.nn.use_bottleneck:
                 irecon_loss = self.irecon * self._compute_reconstruction_loss(target_raw, pred_xl, dropout_xl)
 
-            # Geometric (manifold) loss
+            # Geometric (manifold) loss — only when manifold is active
             geometric_loss = torch.tensor(0.0, device=self.device)
-            if self.lorentz > 0:
+            if self.lorentz > 0 and self.nn.use_manifold:
                 if self.use_euclidean_manifold:
                     from .utils import euclidean_distance
                     dist = euclidean_distance(z_manifold, ld_manifold)
@@ -329,7 +340,7 @@ class HSDEModel(scviMixin, dipMixin, betatcMixin, infoMixin):
         self._nan_skip_count = 0  # Reset on successful step
 
         self.loss.append((
-            total_val, recon_loss.detach(), irecon_loss.detach(),
-            geometric_loss.detach(), qz_div.detach(), kl_div.detach(),
-            dip_loss.detach(), tc_loss.detach(), mmd_loss.detach(),
+            total_val, recon_loss.item(), irecon_loss.item(),
+            geometric_loss.item(), qz_div.item(), kl_div.item(),
+            dip_loss.item(), tc_loss.item(), mmd_loss.item(),
         ))

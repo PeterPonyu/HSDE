@@ -475,7 +475,18 @@ class HSDE(Env, VectorFieldMixin):
         Returns
         -------
         bottleneck : ndarray of shape (n_cells, i_dim)
+
+        Raises
+        ------
+        RuntimeError
+            If the model was built without the bottleneck (irecon=0 and
+            lorentz=0 or use_bottleneck_lorentz=False).
         """
+        if not self.nn.use_bottleneck:
+            raise RuntimeError(
+                "Bottleneck was not built for this model configuration. "
+                "Set irecon > 0 or lorentz > 0 with use_bottleneck_lorentz=True."
+            )
         x = torch.tensor(self.X_norm, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             outputs = self.nn(x)
@@ -519,13 +530,15 @@ class HSDE(Env, VectorFieldMixin):
             "encoder_type": self.encoder_type,
             "parameters": n_params,
             "latent_dim": self.nn.latent_dim,
-            "bottleneck_dim": self.nn.i_dim,
+            "bottleneck_dim": self.nn.i_dim if self.nn.use_bottleneck else None,
             "input_dim": self.n_var,
             "n_cells": self.n_obs,
             "loss_type": self.loss_type,
             "device": str(self.device),
             "use_sde": self.nn.use_sde,
             "use_pde": self.nn.use_pde,
+            "use_bottleneck": self.nn.use_bottleneck,
+            "use_manifold": self.nn.use_manifold,
         }
 
     def summary(self):
