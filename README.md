@@ -1,3 +1,9 @@
+<div align="center">
+  <a href="https://peterponyu.github.io/">
+    <img src="https://peterponyu.github.io/assets/badges/HSDE.svg" width="64" alt="ZF Lab · HSDE">
+  </a>
+</div>
+
 # HSDE
 
 **Hyperbolic SDE-Regularised VAE for Single-Cell Omics**
